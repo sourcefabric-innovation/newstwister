@@ -38,11 +38,16 @@ on check GET request:
 import json
 import subprocess
 from BaseHTTPServer import HTTPServer, BaseHTTPRequestHandler
-from SocketServer import ForkingMixIn#,ThreadingMixIn
 import sys, os, time, atexit, signal
 import logging, logging.handlers
 import resource, urlparse, cgi
 import pwd, grp
+
+USE_THREADING_SERVER = True
+if USE_THREADING_SERVER:
+    from SocketServer import ThreadingMixIn as WebMixIn
+else:
+    from SocketServer import ForkingMixIn as WebMixIn
 
 NODE_NAME = 'twister_node'
 
@@ -98,7 +103,7 @@ class ConnectParams():
         parser.add_argument('-l', '--log_path', help='path to log file, e.g. ' + str(LOG_PATH))
         parser.add_argument('-i', '--pid_path', help='path to pid file, e.g. ' + str(PID_PATH))
 
-        #parser.add_argument('-a', '--allowed_clients', help='ip addresses of allowed clients')
+        parser.add_argument('-a', '--allowed', help='path to file with ip addresses of allowed clients')
 
         args = parser.parse_args()
         if args.web_host:
@@ -114,8 +119,25 @@ class ConnectParams():
             self.log_path = args.log_path
         if args.pid_path:
             self.pid_path = args.pid_path
-
         setup_logger(self.log_path)
+
+        if args.allowed:
+            try:
+                self.allowed = []
+                fh = open(args.allowed, 'r')
+                while True:
+                    line = fh.readline()
+                    if not line:
+                        break
+                    line = line.strip()
+                    if not line:
+                        continue
+                    if line.startswith('#'):
+                        continue
+                    self.allowed.append(line)
+                fh.close()
+            except:
+                self.allowed = ALLOWED_CLIENTS
 
     def get_web_host():
         return self.web_host
@@ -128,6 +150,11 @@ class ConnectParams():
 
     def get_save_url():
         return self.save_url
+
+    def is_allowed(ip_address):
+        if str(ip_address) in self.allowed:
+            return True
+        return False
 
 params = ConnectParams()
 
@@ -152,6 +179,14 @@ class NodeHandler():
 nodes = NodeHandler()
 
 class RequestHandler(BaseHTTPRequestHandler):
+
+    def _check_client(self):
+        global params
+
+        client_ip = str(self.client_address[0])
+        return params(client_ip)
+
+        return False
 
     def _check_running(self, pid):
         try:
@@ -198,6 +233,10 @@ class RequestHandler(BaseHTTPRequestHandler):
         global params
         global nodes
 
+        if not self._check_client():
+            _write_error('not allowed')
+            return
+
         if not self.path:
             self.path = ''
 
@@ -228,6 +267,10 @@ class RequestHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         global params
         global nodes
+
+        if not self._check_client():
+            _write_error('not allowed')
+            return
 
         data_string = ''
         data_struct = None
@@ -333,7 +376,7 @@ class RequestHandler(BaseHTTPRequestHandler):
 
             return
 
-class DerivedHTTPServer(ForkingMixIn, HTTPServer):
+class DerivedHTTPServer(WebMixIn, HTTPServer):
     pass
 
 def run_server(ip_address, port):
