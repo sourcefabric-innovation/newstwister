@@ -57,7 +57,7 @@ def set_proc_name():
 class SaveSpecs():
     def __init__(self):
         self.specs = {
-            'url': SAVE_URL
+            'save_url': SAVE_URL
         }
     def get_specs(self):
         return self.specs
@@ -86,7 +86,10 @@ class Params():
         post_params['stall_warning'] = 'true'
 
         for one_key in stream_filter:
-            post_params[one_key] = stream_filter[one_key].decode('utf-8')
+            try:
+                post_params[one_key] = stream_filter[one_key].decode('utf-8')
+            except:
+                pass
 
         return post_params
 
@@ -173,6 +176,8 @@ class TweetSaver(object):
         return conn_headers
 
     def save_tweet(self, message):
+        #TODO: tweets should contain info on stream specs, so that it is possible to match them to end-points
+
         tweet_id = message.get('id_str')
         if not tweet_id:
             return False
