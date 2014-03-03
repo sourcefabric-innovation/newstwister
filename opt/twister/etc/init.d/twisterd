@@ -1,0 +1,74 @@
+#!/bin/sh
+# Start/stop the Twister daemon.
+
+### BEGIN INIT INFO
+# Provides:          twisterd
+# Required-Start:    $local_fs $remote_fs
+# Required-Stop:     $local_fs $remote_fs
+# Should-Start:      $network
+# Should-Stop:       $network
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Twister daemon
+# Description:       web server for the Twister daemon
+### END INIT INFO
+
+. /lib/lsb/init-functions
+
+DAEMON=/opt/twister/sbin/twisterd.py
+PIDFILE=/opt/twister/var/run/twisterd.pid
+LOCKFILE=/opt/twister/var/run/twisterd.lock
+LOGFILE=/opt/twister/var/log/twisterd.log
+INSTDIR=/opt/twister
+WEBPORT=9020
+WEBHOST=localhost
+DBNAME=citizendesk
+
+# check/touch/chown the log file
+# kill all stream client nodes on stop too (killall twister_node)
+#
+#
+
+test -x $DAEMON || exit 0
+
+case "$1" in
+  start)
+    touch $LOCKFILE
+    chown www-data.www-data $LOCKFILE
+
+    log_daemon_msg "Starting Twister daemon"
+    log_progress_msg "twister"
+
+    start-stop-daemon --start --quiet --pidfile $PIDFILE --startas $DAEMON -- \
+        -n $DBNAME -a $WEBHOST -p $WEBPORT -i $PIDFILE -l $LOGFILE -k $LOCKFILE -s $INSTDIR -d -v || true
+
+    log_end_msg 0
+    ;;
+
+  stop)
+    log_daemon_msg "Stopping Twister daemon"
+    log_progress_msg "twister"
+    start-stop-daemon --stop --quiet \
+        --pidfile $PIDFILE || true
+
+    log_end_msg 0
+    ;;
+
+  reload)
+    # We don't have support for this yet.
+    exit 1
+    ;;
+
+  restart|force-reload)
+    $0 stop
+    sleep 1
+    $0 start
+    ;;
+
+  *)
+    echo "Usage: $0 {start|stop|restart|force-reload}"
+    exit 1
+
+esac
+
+exit 0
