@@ -1,4 +1,4 @@
-stweamer
+Newstwister
 ========
 
 Taking tweets from Twitter streams into Elasticsearch

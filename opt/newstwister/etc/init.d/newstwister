@@ -1,0 +1,80 @@
+#!/bin/sh
+# Start/stop the Newstwister daemon.
+
+### BEGIN INIT INFO
+# Provides:          newstwisterd
+# Required-Start:    $local_fs $remote_fs
+# Required-Stop:     $local_fs $remote_fs
+# Should-Start:      $network
+# Should-Stop:       $network
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Newstwister daemon
+# Description:       the Newstwister controller daemon
+### END INIT INFO
+
+. /lib/lsb/init-functions
+
+DAEMON=/opt/newstwister/sbin/newstwisterd.py
+NODE=/opt/newstwister/sbin/newstwistern.py
+PIDFILE=/opt/newstwister/var/run/newstwisterd.pid
+LOGFILE=/opt/newstwister/var/log/newstwister/newstwisterd.log
+WEBPORT=9054
+WEBHOST=localhost
+SAVEURL="http://localhost:9055/newstwister/tweets/"
+CLIENTS=/opt/newstwister/etc/newstwister/allowed.conf
+USER=citizendesk
+GROUP=citizendesk
+
+# check/touch/chown the log file
+# kill all stream client nodes on stop too (killall twister_node)
+#
+#
+
+test -x $DAEMON || exit 0
+
+case "$1" in
+  start)
+    touch $LOGFILE
+    chown $USER.$GROUP $LOGFILE
+    touch $PIDFILE
+    chown $USER.$GROUP $PIDFILE
+
+    log_daemon_msg "Starting Newstwister daemon"
+    log_progress_msg "newstwisterd"
+
+    start-stop-daemon --start --quiet --pidfile $PIDFILE --startas $DAEMON -- \
+        -w $WEBHOST -p $WEBPORT -i $PIDFILE -l $LOGFILE -n $NODE -s $SAVEURL \
+        -d -u $USER -g $GROUP -a $CLIENTS || true
+
+    log_end_msg 0
+    ;;
+
+  stop)
+    log_daemon_msg "Stopping Newstwister daemon"
+    log_progress_msg "newstwisterd"
+    start-stop-daemon --stop --quiet \
+        --pidfile $PIDFILE || true
+
+    killall newstwistern 2> /dev/null || true
+    log_end_msg 0
+    ;;
+
+  reload)
+    # We don't have support for this yet.
+    exit 1
+    ;;
+
+  restart|force-reload)
+    $0 stop
+    sleep 1
+    $0 start
+    ;;
+
+  *)
+    echo "Usage: $0 {start|stop|restart|force-reload}"
+    exit 1
+
+esac
+
+exit 0
