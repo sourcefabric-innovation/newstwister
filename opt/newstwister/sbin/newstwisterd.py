@@ -171,8 +171,10 @@ class ConnectParams():
             try:
                 user_info = pwd.getpwnam(args.user)
                 self.user_id = int(user_info.pw_uid)
+                if user_info.pw_dir and os.path.exists(user_info.pw_dir):
+                    self.home_dir = user_info.pw_dir
             except:
-                logger.error('can not find the daemon user')
+                sys.stderr.write('can not find the daemon user\n')
                 status.set_status(1)
                 sys.exit(1)
 
@@ -181,7 +183,7 @@ class ConnectParams():
                 group_info = grp.getgrnam(args.group)
                 self.group_id = int(group_info.gr_gid)
             except:
-                logging.error('can not find the daemon group')
+                sys.stderr.write('can not find the daemon group\n')
                 status.set_status(1)
                 sys.exit(1)
 
@@ -189,16 +191,16 @@ class ConnectParams():
             self.daemonize = True
             correct = True
             if not self.log_path:
-                logger.error('log path not provided')
+                sys.stderr.write('log path not provided\n')
                 correct = False
             if not self.pid_path:
-                logger.error('pid path not provided')
+                sys.stderr.write('pid path not provided\n')
                 correct = False
             if not self.user_id:
-                logger.error('user name not provided')
+                sys.stderr.write('user name not provided\n')
                 correct = False
             if not self.group_id:
-                logger.error('group name not provided')
+                sys.stderr.write('group name not provided\n')
                 correct = False
             if not correct:
                 status.set_status(1)
@@ -605,7 +607,7 @@ def daemonize(work_dir, pid_path):
     try:
         pid = os.fork()
     except OSError, e:
-        logging.error('can not daemonize: %s [%d]' % (e.strerror, e.errno))
+        logger.error('can not daemonize: %s [%d]' % (e.strerror, e.errno))
         status.set_status(1)
         sys.exit(1)
 
@@ -618,7 +620,7 @@ def daemonize(work_dir, pid_path):
     try:
         pid = os.fork()
     except OSError, e:
-        logging.error('can not daemonize: %s [%d]' % (e.strerror, e.errno))
+        logger.error('can not daemonize: %s [%d]' % (e.strerror, e.errno))
         status.set_status(1)
         sys.exit(1)
 
@@ -629,7 +631,7 @@ def daemonize(work_dir, pid_path):
         os.chdir(work_dir)
         os.umask(UMASK)
     except OSError, e:
-        logging.error('can not daemonize: %s [%d]' % (e.strerror, e.errno))
+        logger.error('can not daemonize: %s [%d]' % (e.strerror, e.errno))
         status.set_status(1)
         sys.exit(1)
 
@@ -643,19 +645,19 @@ def daemonize(work_dir, pid_path):
         os.dup2(so.fileno(), sys.stdout.fileno())
         os.dup2(se.fileno(), sys.stderr.fileno())
     except OSError, e:
-        logging.error('can not daemonize: %s [%d]' % (e.strerror, e.errno))
+        logger.error('can not daemonize: %s [%d]' % (e.strerror, e.errno))
         status.set_status(1)
         sys.exit(1)
 
     if pid_path is None:
-        logging.warning('no pid file path provided')
+        logger.warning('no pid file path provided')
     else:
         try:
             fh = open(pid_path, 'w')
             fh.write(str(os.getpid()) + '\n')
             fh.close()
         except Exception:
-            logging.error('can not create pid file: ' + str(pid_path))
+            logger.error('can not create pid file: ' + str(pid_path))
             status.set_status(1)
             sys.exit(1)
 
@@ -667,13 +669,13 @@ def set_user(user_id, group_id, pid_path):
             try:
                 os.chown(pid_path, user_id, -1)
             except OSError, e:
-                logging.warning('can not set pid file owner: %s [%d]' % (e.strerror, e.errno))
+                logger.warning('can not set pid file owner: %s [%d]' % (e.strerror, e.errno))
 
     if group_id is not None:
         try:
             os.setgid(group_id)
         except Exception as e:
-            logging.error('can not set group id: %s [%d]' % (e.strerror, e.errno))
+            logger.error('can not set group id: %s [%d]' % (e.strerror, e.errno))
             status.set_status(1)
             sys.exit(1)
 
@@ -681,7 +683,7 @@ def set_user(user_id, group_id, pid_path):
         try:
             os.setuid(user_id)
         except Exception as e:
-            logging.error('can not set user id: %s [%d]' % (e.strerror, e.errno))
+            logger.error('can not set user id: %s [%d]' % (e.strerror, e.errno))
             status.set_status(1)
             sys.exit(1)
 
@@ -725,16 +727,15 @@ def run_server():
 
 if __name__ == '__main__':
     params.use_specs()
-    atexit.register(cleanup)
+    setup_logger(params.get_log_path())
 
+    atexit.register(cleanup)
     signal.signal(signal.SIGTERM, exit_handler)
     signal.signal(signal.SIGINT, exit_handler)
 
     if params.to_daemonize():
         daemonize(params.get_home_dir(), params.get_pid_path())
         set_user(params.get_user_id(), params.get_group_id(), params.get_pid_path())
-
-    setup_logger(params.get_log_path())
 
     try:
         run_server()

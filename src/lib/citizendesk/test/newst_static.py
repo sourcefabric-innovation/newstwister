@@ -19,8 +19,8 @@ from twisted.web.http_headers import Headers
 from twisted.web.iweb import IBodyProducer
 from twisted.python.log import err
 
-from stw_auth import oauth_info
-from stw_feed import stream_filter
+from newst_auth import oauth_info
+from newst_feed import stream_filter
 
 
 class Params():
