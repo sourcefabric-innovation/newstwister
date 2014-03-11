@@ -36,11 +36,11 @@ class NewstwisterStorage():
             spec = None
         return spec
 
-    def get_stream_status(self, filter_id):
+    def get_stream_status(self, oauth_id):
         stage = None
         try:
             collection = self.storage.db[COLLECTION_STATUSES]
-            stage = collection.find_one({'_id': filter_id})
+            stage = collection.find_one({'_id': oauth_id})
         except:
             stage = None
         if stage:
@@ -83,7 +83,7 @@ class NewstwisterConnector():
         filter_params = storage.get_filter_spec(filter_id)
 
         stream_spec = {'oauth_id': oauth_id}
-        stream_status = storage.get_stream_status(filter_id)
+        stream_status = storage.get_stream_status(oauth_id)
         if stream_status and ('stage' in stream_status) and (stream_status['stage'] != NODE_NONE):
             return None
 
