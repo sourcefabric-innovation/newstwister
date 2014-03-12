@@ -8,9 +8,9 @@ NODE_NONE = 0
 NODE_INIT = 1
 NODE_RUNS = 2
 
-COLLECTION_OAUTHS = 'newstwister_oauths'
-COLLECTION_FILTERS = 'newstwister_filters'
-COLLECTION_STATUSES = 'newstwister_statuses'
+COLLECTION_OAUTHS = 'twt_oauths'
+COLLECTION_FILTERS = 'twt_filters'
+COLLECTION_STATUSES = 'twt_streams'
 
 class NewstwisterStorage():
     def __init__(self, storage=None):
@@ -31,16 +31,19 @@ class NewstwisterStorage():
         try:
             collection = self.storage.db[COLLECTION_FILTERS]
             doc = collection.find_one({'_id': filter_id})
-            spec = doc['spec']
+            spec = {}
+            for key in doc['spec']:
+                if doc['spec'][key]:
+                    spec[key] = doc['spec'][key]
         except:
             spec = None
         return spec
 
-    def get_stream_status(self, oauth_id):
+    def get_stream_status(self, status_id):
         stage = None
         try:
             collection = self.storage.db[COLLECTION_STATUSES]
-            stage = collection.find_one({'_id': oauth_id})
+            stage = collection.find_one({'_id': status_id})
         except:
             stage = None
         if stage:
