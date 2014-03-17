@@ -40,9 +40,9 @@ def setup_db(server, port, dbname):
 def run_test():
     file_dir = os.path.dirname(os.path.realpath(__file__))
     sys.path.append(os.path.dirname(os.path.dirname(file_dir)))
-    from citizendesk.utils.newstwisterc import NewstwisterStorage, NewstwisterConnector
+    from citizendesk.external.feeds.twt.newstwisterc import NewstwisterStorage, NewstwisterConnector
 
-    storage = NewstwisterStorage(setup_db(MONGODB_SERVER_HOST, MONGODB_SERVER_PORT, DBNAME).get_db())
+    storage = NewstwisterStorage(setup_db(MONGODB_SERVER_HOST, MONGODB_SERVER_PORT, DBNAME).get_db().db)
     connector = NewstwisterConnector(NEWSTWISTER_URL)
 
     res = connector.request_start(storage, ENDPOINT_ID, OAUTH_ID, FILTER_ID)

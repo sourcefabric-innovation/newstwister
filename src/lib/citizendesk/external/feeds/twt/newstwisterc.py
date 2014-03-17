@@ -13,13 +13,13 @@ COLLECTION_FILTERS = 'twt_filters'
 COLLECTION_STATUSES = 'twt_streams'
 
 class NewstwisterStorage():
-    def __init__(self, storage=None):
-        self.storage = storage
+    def __init__(self, db=None):
+        self.db = db
 
     def get_oauth_spec(self, oauth_id):
         spec = None
         try:
-            collection = self.storage.db[COLLECTION_OAUTHS]
+            collection = self.db[COLLECTION_OAUTHS]
             doc = collection.find_one({'_id': oauth_id})
             spec = doc['spec']
         except:
@@ -29,7 +29,7 @@ class NewstwisterStorage():
     def get_filter_spec(self, filter_id):
         spec = None
         try:
-            collection = self.storage.db[COLLECTION_FILTERS]
+            collection = self.db[COLLECTION_FILTERS]
             doc = collection.find_one({'_id': filter_id})
             spec = {}
             for key in doc['spec']:
@@ -42,7 +42,7 @@ class NewstwisterStorage():
     def get_stream_status(self, status_id):
         stage = None
         try:
-            collection = self.storage.db[COLLECTION_STATUSES]
+            collection = self.db[COLLECTION_STATUSES]
             stage = collection.find_one({'_id': status_id})
         except:
             stage = None
@@ -59,7 +59,7 @@ class NewstwisterStorage():
             stream_stage['_id'] = stream_stage['oauth_id']
             del(stream_stage['oauth_id'])
         try:
-            collection = self.storage.db[COLLECTION_STATUSES]
+            collection = self.db[COLLECTION_STATUSES]
             collection.save(stream_stage)
         except:
             return False
