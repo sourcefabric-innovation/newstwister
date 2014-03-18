@@ -7,7 +7,7 @@ from pymongo import MongoClient
 
 MONGODB_SERVER_HOST = 'localhost'
 MONGODB_SERVER_PORT = 27017
-DBNAME = 'citizendesk'
+DBNAME = 'test'
 NEWSTWISTER_URL = 'http://localhost:9054/'
 ENDPOINT_ID = 3
 OAUTH_ID = 1
@@ -40,7 +40,7 @@ def setup_db(server, port, dbname):
 def run_test():
     file_dir = os.path.dirname(os.path.realpath(__file__))
     sys.path.append(os.path.dirname(os.path.dirname(file_dir)))
-    from citizendesk.external.feeds.twt.newstwisterc import NewstwisterStorage, NewstwisterConnector
+    from newst_connect import NewstwisterStorage, NewstwisterConnector
 
     storage = NewstwisterStorage(setup_db(MONGODB_SERVER_HOST, MONGODB_SERVER_PORT, DBNAME).get_db().db)
     connector = NewstwisterConnector(NEWSTWISTER_URL)
