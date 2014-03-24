@@ -186,7 +186,7 @@ class TweetSaver(object):
         conn_headers = {}
         conn_headers['Host'] = [host]
         conn_headers['User-Agent'] = ['twister-node']
-        conn_headers['Content-Type'] = ['application/x-www-form-urlencoded']
+        conn_headers['Content-Type'] = ['application/json']
         conn_headers['Accept'] = ['application/json']
 
         return conn_headers
