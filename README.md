@@ -18,3 +18,10 @@ into index 'citizen_desk' and 'tweets' type.
 Python framework Twisted is used for asynchronous processing of the tweets.
 Elastic search has to be running on the node computer.
 
+If used under Ubuntu, next packages have to be installed:
+python-twisted
+python-oauth2
+python-setproctitle
+
+
+
