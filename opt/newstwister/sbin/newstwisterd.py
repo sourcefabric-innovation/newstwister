@@ -50,11 +50,14 @@ else:
     from SocketServer import ForkingMixIn as WebMixIn
 
 NODE_NAME = 'newstwistern'
+SEARCH_NAME = 'newstwisters'
 
 WEB_HOST = 'localhost'
 WEB_PORT = 9054
+SEARCH_PORT = 9053
 
 NODE_PATH = '/opt/newstwister/sbin/newstwistern.py'
+SEARCH_PATH = '/opt/newstwister/sbin/newstwisters.py'
 SAVE_URL = 'http://localhost:9200/newstwister/tweets/'
 
 LOG_PATH = '/opt/newstwister/log/newstwister/newstwisterd.log'
@@ -122,6 +125,7 @@ class ConnectParams():
     def __init__(self):
         self.web_host = WEB_HOST
         self.web_port = WEB_PORT
+        self.search_port = SEARCH_PORT
         self.node_path = NODE_PATH
         self.save_url = SAVE_URL
         self.log_path = None
@@ -139,8 +143,10 @@ class ConnectParams():
         parser = argparse.ArgumentParser()
         parser.add_argument('-w', '--web_host', help='web host of this controller, e.g. ' + str(WEB_HOST), default=WEB_HOST)
         parser.add_argument('-p', '--web_port', help='web port of this controller, e.g. ' + str(WEB_PORT), type=int, default=WEB_PORT)
+        parser.add_argument('-t', '--search_port', help='port of the search node, e.g. ' + str(SEARCH_PORT), type=int, default=SEARCH_PORT)
 
         parser.add_argument('-n', '--node_path', help='node path, e.g. ' + str(NODE_PATH))
+        parser.add_argument('-e', '--search_path', help='search node path, e.g. ' + str(SEARCH_PORT))
         parser.add_argument('-s', '--save_url', help='save url, e.g. ' + str(SAVE_URL))
 
         parser.add_argument('-l', '--log_path', help='path to log file, e.g. ' + str(LOG_PATH))
@@ -157,8 +163,13 @@ class ConnectParams():
             self.web_host = args.web_host
         if args.web_port:
             self.web_port = int(args.web_port)
+        if args.search_port:
+            self.search_port = int(args.search_port)
+
         if args.node_path:
             self.node_path = args.node_path
+        if args.search_path:
+            self.search_path = args.search_path
         if args.save_url:
             self.save_url = args.save_url
 
@@ -228,8 +239,14 @@ class ConnectParams():
     def get_web_port(self):
         return self.web_port
 
+    def get_search_port(self):
+        return self.search_port
+
     def get_node_path(self):
         return self.node_path
+
+    def get_search_path(self):
+        return self.search_path
 
     def get_save_url(self):
         return self.save_url
@@ -594,6 +611,66 @@ class RequestHandler(BaseHTTPRequestHandler):
 class DerivedHTTPServer(WebMixIn, HTTPServer):
     pass
 
+def start_search_node():
+    global params
+
+    logger.info('starting the Newstwister search node')
+
+    search_port = params.get_search_port()
+    search_path = params.get_search_path()
+
+    self.exec_params = [SEARCH_NAME, self.search_path, '-s', params.get_save_url(), '-w', '127.0.0.1', '-p', str(search_port)]
+
+    pid = None
+    executable_name = 'python' + str(sys.version_info.major) + '.' +str(sys.version_info.minor)
+
+    twitter_params = {}
+    # TODO: load it according to a startup option
+    oauth_set_path = '/tmp/oauths.py'
+
+    oath_loaded = False
+    # python2/python3.2 way
+    try:
+        import imp
+        oauths = imp.load_source('oauths_data', oauth_set_path)
+        twitter_params['oauth_info'] = oauths.oauth_info
+        oath_loaded = True
+    except Exception as exc:
+        oath_loaded = False
+
+    # python3.3+ way
+    if not oath_loaded:
+        try:
+            import importlib.machinery
+            loader = importlib.machinery.SourceFileLoader('oauths_data', oauth_set_path)
+            oauths = loader.load_module('oauths_data')
+            twitter_params['oauth_info'] = oauths.oauth_info
+            oath_loaded = True
+        except Exception as exc:
+            oath_loaded = False
+
+    if not oath_loaded:
+        logger.warning('can not load oauth keys')
+        return
+
+    try:
+        new_process = subprocess.Popen(self.exec_params, bufsize=1, stdin=subprocess.PIPE, close_fds=True, executable=executable_name)
+        new_process.stdin.write(json.dumps(twitter_params) + '\n')
+        new_process.stdin.flush()
+        pid = new_process.pid
+    except Exception as exc:
+        logger.warning('can not write to search node')
+        logger.warning('error during search node creation: ' + str(exc))
+        return
+
+    if not pid:
+        logger.warning('can not start search node')
+        return
+
+    logger.info('started search node: ' + str(pid))
+
+    is_running = self._check_running(pid)
+
 def daemonize(work_dir, pid_path):
     global status
 
@@ -736,6 +813,13 @@ if __name__ == '__main__':
     if params.to_daemonize():
         daemonize(params.get_home_dir(), params.get_pid_path())
         set_user(params.get_user_id(), params.get_group_id(), params.get_pid_path())
+
+    try:
+        start_search_node()
+    except Exception as exc:
+        logger.error('can not start the Newstwister search node: ' + str(exc))
+        status.set_status(1)
+        sys.exit(1)
 
     try:
         run_server()

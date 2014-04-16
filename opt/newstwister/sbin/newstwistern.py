@@ -97,8 +97,7 @@ class Params():
         global stream_filter
 
         post_params = {}
-        post_params['include_entities'] = 0
-        post_params['stall_warning'] = 'true'
+        post_params['stall_warnings'] = 'true'
 
         for one_key in stream_filter:
             try:
@@ -129,7 +128,7 @@ class Params():
         conn_headers = {}
         conn_headers['Host'] = ['stream.twitter.com']
         conn_headers['Authorization'] = [self.get_oauth_header()]
-        conn_headers['User-Agent'] = ['testing steamer']
+        conn_headers['User-Agent'] = ['Newstwister']
         conn_headers['Content-Type'] = ['application/x-www-form-urlencoded']
 
         return conn_headers
@@ -185,19 +184,18 @@ class TweetSaver(object):
 
         conn_headers = {}
         conn_headers['Host'] = [host]
-        conn_headers['User-Agent'] = ['twister-node']
+        conn_headers['User-Agent'] = ['Newstwister']
         conn_headers['Content-Type'] = ['application/json']
         conn_headers['Accept'] = ['application/json']
 
         return conn_headers
 
     def save_tweet(self, tweet):
-        #TODO: tweets should contain info on stream specs, so that it is possible to match them to end-points
-        #      filter specs should be added as well, to allow term highlighting
         tweet_id = tweet.get('id_str')
         if not tweet_id:
             return False
         save_data = {}
+        save_data['type'] = 'stream'
         save_data['endpoint'] = endpoint
         save_data['filter'] = stream_filter
         save_data['tweet'] = tweet

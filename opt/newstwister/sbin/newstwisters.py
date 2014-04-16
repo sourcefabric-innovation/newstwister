@@ -43,10 +43,24 @@ from pprint import pformat
 from zope.interface import implements
 #from twisted.python.log import err
 
+WEB_ADDRESS = '127.0.0.1'
+WEB_PORT = 9053
 SAVE_URL = 'http://localhost:9200/newstwister/tweets/'
 
-'''
-# initial setting
+TODEBUG = False
+DEBUGPATH = '/tmp/newstwister_search.debug'
+
+def debug_msg(msg):
+    if not TODEBUG:
+        return
+
+    try:
+        fh = open(DEBUGPATH, 'a+')
+        fh.write(str(msg) + '\n')
+        fh.flush()
+        fh.close()
+    except:
+        pass
 
 try:
     import setproctitle
@@ -83,42 +97,35 @@ def set_proc_name():
 class SaveSpecs():
     def __init__(self):
         self.specs = {
+            'web_address': WEB_ADDRESS,
+            'web_port': WEB_PORT,
             'save_url': SAVE_URL
         }
     def get_specs(self):
         return self.specs
 
-    def set_specs(self, save_url):
+    def set_specs(self, web_address, web_port, save_url):
         self.specs = {
+            'web_address': web_address,
+            'web_port': web_port,
             'save_url': save_url
         }
 
     def use_specs(self):
         parser = argparse.ArgumentParser()
+        parser.add_argument('-w', '--web_address', help='web address to listen at')
+        parser.add_argument('-p', '--web_port', help='web port to listen at')
         parser.add_argument('-s', '--save_url', help='url for saving the tweets')
 
         args = parser.parse_args()
+        if args.web_address:
+            self.specs['web_address'] = args.web_address
+        if args.web_port:
+            self.specs['web_port'] = args.web_port
         if args.save_url:
             self.specs['save_url'] = args.save_url
 
 save_specs = SaveSpecs()
-
-'''
-
-TODEBUG = False
-DEBUGPATH = '/tmp/newstwister_node.debug'
-
-def debug_msg(msg):
-    if not TODEBUG:
-        return
-
-    try:
-        fh = open(DEBUGPATH, 'a+')
-        fh.write(str(msg) + '\n')
-        fh.flush()
-        fh.close()
-    except:
-        pass
 
 class RequestQueue(object):
     def __init__(self):
@@ -368,22 +375,38 @@ class QueueProcessor(object):
         #self.searches.processed_request['twitter'] = None
 
         # send data stored in self.searches.tweets
-        if not self.searches.tweets:
+
+        tweet_id = None
+        current_tweet = None
+
+        while not tweet_id:
+            if not self.searches.tweets:
+                break
+            current_tweet = self.searches.tweets.pop(0)
+            if (not current_tweet) or (type(current_tweet) is not dict):
+                continue
+            tweet_id = current_tweet.get('id_str')
+            if not tweet_id:
+                return False
+
+        if (not current_tweet) or (not tweet_id):
             self._finish_pass()
             return
 
         self.tweet_count += 1
-        current_tweet = self.searches.tweets.pop(0)
-        tweet_id = current_tweet['id_str']
 
-        #tweet_data = None
-        tweet_data = json.dumps(current_tweet)
+        user_id = self.searches.processed_request['user_id']
+        request_id = self.searches.processed_request['request_id']
 
-        self.save_url = SAVE_URL
-        send_url = self.save_url + str(tweet_id)
-        conn_headers = {}
+        save_data = {}
+        save_data['request'] = request_id
+        save_data['type'] = 'search'
+        save_data['endpoint'] = user_id
+        save_data['filter'] = self.searches.processed_request['search_spec']
+        save_data['tweet'] = current_tweet
 
-        '''
+        tweet_data = json.dumps(save_data)
+
         global save_specs
 
         self.save_url = save_specs.get_specs()['save_url']
@@ -399,18 +422,7 @@ class QueueProcessor(object):
         conn_headers['Content-Type'] = ['application/json']
         conn_headers['Accept'] = ['application/json']
 
-        tweet_id = tweet.get('id_str')
-        if not tweet_id:
-            return False
-        save_data = {}
-        save_data['endpoint'] = endpoint
-        save_data['filter'] = stream_filter
-        save_data['tweet'] = tweet
-
-        tweet_data = json.dumps(save_data)
-
         send_url = self.save_url + str(tweet_id)
-        '''
 
         contextFactory = ElsClientContextFactory()
         agent = Agent(reactor, contextFactory)
@@ -687,17 +699,20 @@ class ElsResponseBorders(object):
         debug_msg('shutting down els connection')
         pass
 
-'''
 # General script passage
 
-def signal_handler(signal_number, frame):
-    global d
-
-    d.cancel()
-    reactor.disconnectAll()
-    process_quit(signal_number, frame)
+#def signal_handler(signal_number, frame):
+#    #global d
+#
+#    #d.cancel()
+#    reactor.disconnectAll()
+#    process_quit(signal_number, frame)
 
 def process_quit(signal_number, frame):
+    try:
+        reactor.disconnectAll()
+    except:
+        pass
     cleanup()
 
 def cleanup():
@@ -705,34 +720,36 @@ def cleanup():
     debug_msg('stopping the process')
     os._exit(0)
 
-endpoint = {
-    'endpoint_id': None
-}
+#endpoint = {
+#    'endpoint_id': None
+#}
 oauth_info = {
     'consumer_key': None,
     'consumer_secret': None,
     'access_token_key': None,
     'access_token_secret': None
 }
-stream_filter = {}
-stream_filter_basic = [
-    'follow',
-    'track',
-    'locations'
-]
-stream_filter_other = [
-    'filter_level',
-    'language'
-]
+#stream_filter = {}
+#stream_filter_basic = [
+#    'follow',
+#    'track',
+#    'locations'
+#]
+#stream_filter_other = [
+#    'filter_level',
+#    'language'
+#]
 
 if __name__ == '__main__':
+    from search_auth import oauth_info
 
     if not set_proc_name():
         sys.exit(1)
 
     save_specs.use_specs()
+    specs = save_specs.get_specs()
 
-    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGINT, process_quit)
     signal.signal(signal.SIGTERM, process_quit)
 
     atexit.register(cleanup)
@@ -767,20 +784,6 @@ if __name__ == '__main__':
                 is_correct = False
             elif type(twitter_params['oauth_info']) is not dict:
                 is_correct = False
-            #else:
-            #    oauth_info = twitter_params['oauth_info']
-
-            if not 'stream_filter' in twitter_params:
-                is_correct = False
-            elif type(twitter_params['stream_filter']) is not dict:
-                is_correct = False
-            #else:
-            #    stream_filter = twitter_params['stream_filter']
-
-            if not 'endpoint' in twitter_params:
-                is_correct = False
-            elif type(twitter_params['endpoint']) is not dict:
-                is_correct = False
         except:
             is_correct = False
 
@@ -799,59 +802,9 @@ if __name__ == '__main__':
                 break
 
     if is_correct:
-        is_correct = False
-        for part in stream_filter_basic:
-            if part in twitter_params['stream_filter']:
-                if twitter_params['stream_filter'][part]:
-                    try:
-                        stream_filter[part] = str(twitter_params['stream_filter'][part])
-                    except:
-                        is_correct = False
-                        break
-                    if stream_filter[part]:
-                        is_correct = True
-
-    if is_correct:
-        for part in stream_filter_other:
-            if part in twitter_params['stream_filter']:
-                if twitter_params['stream_filter'][part]:
-                    try:
-                        stream_filter[part] = str(twitter_params['stream_filter'][part])
-                    except:
-                        is_correct = False
-                        break
-
-    if is_correct:
-        for part in endpoint:
-            if not part in twitter_params['endpoint']:
-                is_correct = False
-                break
-            if not twitter_params['endpoint'][part]:
-                is_correct = False
-                break
-            try:
-                endpoint[part] = str(twitter_params['endpoint'][part])
-            except:
-                is_correct = False
-                break
-
-    if is_correct:
-        try:
-            d = make_stream_connection()
-        except:
-            is_correct = False
-
-    if is_correct:
+        searches = RequestQueue()
+        processor = QueueProcessor(searches)
+        resource = QueuedResource()
+        resource.set_processor(processor)
+        reactor.listenTCP(specs['web_port'], server.Site(resource), interface=specs['web_address'])
         reactor.run()
-'''
-
-#oauth_info = {}
-from search_auth import oauth_info
-
-if __name__ == '__main__':
-    searches = RequestQueue()
-    processor = QueueProcessor(searches)
-    resource = QueuedResource()
-    resource.set_processor(processor)
-    reactor.listenTCP(8080, server.Site(resource))
-    reactor.run()
