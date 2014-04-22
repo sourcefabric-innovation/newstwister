@@ -37,7 +37,7 @@ on a status GET request:
 
 import sys, os, time, atexit, signal
 import logging, logging.handlers
-import resource, urlparse, cgi
+import resource, urlparse, cgi, urllib2
 import json, argparse
 import subprocess
 import pwd, grp
@@ -58,6 +58,7 @@ SEARCH_PORT = 9053
 
 NODE_PATH = '/opt/newstwister/sbin/newstwistern.py'
 SEARCH_PATH = '/opt/newstwister/sbin/newstwisters.py'
+SEARCH_OAUTH = '/opt/newstwister/etc/newstwister/oauth/search_auth.py'
 SAVE_URL = 'http://localhost:9200/newstwister/tweets/'
 
 LOG_PATH = '/opt/newstwister/log/newstwister/newstwisterd.log'
@@ -109,6 +110,49 @@ def is_remote_ip(ip_addr):
 
     return True
 
+def check_running(pid):
+    try:
+        pid = int(pid)
+    except:
+        return False
+
+    try:
+        os.kill(pid, 0)
+    except:
+        return False
+
+    is_correct = True
+    is_defunct = False
+    is_newstwister = False
+    checkp = None
+
+    try:
+        checkp = subprocess.Popen('ps p ' + str(pid), shell=True, stdout=subprocess.PIPE)
+        checks = checkp.stdout.read()
+        if -1 < checks.lower().find('newstwister'):
+            is_newstwister = True
+        if -1 < checks.lower().find('<defunct>'):
+            is_defunct = True
+    except:
+        is_correct = False
+
+    try:
+        checkp.kill()
+        checkp.wait()
+    except:
+        pass
+
+    if not is_correct:
+        return False
+
+    if not is_newstwister:
+        return False
+
+    if is_defunct:
+        return False
+
+    return True
+
 class RunStatus():
     def __init__(self):
         self.status = 0
@@ -127,6 +171,8 @@ class ConnectParams():
         self.web_port = WEB_PORT
         self.search_port = SEARCH_PORT
         self.node_path = NODE_PATH
+        self.search_path = SEARCH_PATH
+        self.search_oauth = SEARCH_OAUTH
         self.save_url = SAVE_URL
         self.log_path = None
         self.pid_path = None
@@ -146,7 +192,8 @@ class ConnectParams():
         parser.add_argument('-t', '--search_port', help='port of the search node, e.g. ' + str(SEARCH_PORT), type=int, default=SEARCH_PORT)
 
         parser.add_argument('-n', '--node_path', help='node path, e.g. ' + str(NODE_PATH))
-        parser.add_argument('-e', '--search_path', help='search node path, e.g. ' + str(SEARCH_PORT))
+        parser.add_argument('-e', '--search_path', help='search node path, e.g. ' + str(SEARCH_PATH))
+        parser.add_argument('-o', '--search_oauth', help='path to file with oauth keys, e.g. ' + str(SEARCH_OAUTH))
         parser.add_argument('-s', '--save_url', help='save url, e.g. ' + str(SAVE_URL))
 
         parser.add_argument('-l', '--log_path', help='path to log file, e.g. ' + str(LOG_PATH))
@@ -170,6 +217,8 @@ class ConnectParams():
             self.node_path = args.node_path
         if args.search_path:
             self.search_path = args.search_path
+        if args.search_oauth:
+            self.search_oauth = args.search_oauth
         if args.save_url:
             self.save_url = args.save_url
 
@@ -247,6 +296,9 @@ class ConnectParams():
 
     def get_search_path(self):
         return self.search_path
+
+    def get_search_oauth(self):
+        return self.search_oauth
 
     def get_save_url(self):
         return self.save_url
@@ -332,43 +384,6 @@ class RequestHandler(BaseHTTPRequestHandler):
         logger.info(str(client_status) + ' request from ' + str(remote_ip) + ' ' + str(method) + ' ' + str(self.path))
 
         return client_allowed
-
-    def _check_running(self, pid):
-        try:
-            pid = int(pid)
-        except:
-            return False
-
-        try:
-            os.kill(pid, 0)
-        except:
-            return False
-
-        is_correct = True
-        is_defunct = False
-        checkp = None
-
-        try:
-            checkp = subprocess.Popen('ps p ' + str(pid), shell=True, stdout=subprocess.PIPE)
-            checks = checkp.stdout.read()
-            if -1 < checks.lower().find('<defunct>'):
-                is_defunct = True
-        except:
-            is_correct = False
-
-        try:
-            checkp.kill()
-            checkp.wait()
-        except:
-            pass
-
-        if not is_correct:
-            return False
-
-        if is_defunct:
-            return False
-
-        return True
 
     def _write_error(self, msg):
         global logger
@@ -481,7 +496,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             self._write_error('pid not provided')
             return
 
-        is_running = self._check_running(pid)
+        is_running = check_running(pid)
         if not is_running:
             old_process = nodes.get_node(pid)
             if old_process:
@@ -515,9 +530,47 @@ class RequestHandler(BaseHTTPRequestHandler):
             command = 'START'
         if main_path.endswith('/_stop'):
             command = 'STOP'
+        if main_path.endswith('/_search'):
+            command = 'SEARCH'
 
         if not command:
             self._write_error('unknown command')
+            return
+
+        if 'SEARCH' == command:
+            #logger.info('processing a search request')
+
+            search_url = 'http://localhost:' + str(params.get_search_port()) + '/'
+
+            try:
+                data_string = self.req_post_data
+            except:
+                self._write_error('no search spec data')
+                return
+
+            try:
+                data_struct = json.loads(data_string.strip())
+            except:
+                self._write_error('can not parse search spec data')
+                return
+
+            try:
+                search_data = json.dumps(data_struct)
+                req = urllib2.Request(search_url, search_data, {'Content-Type': 'application/json'})
+                response = urllib2.urlopen(req)
+                search_result = response.read()
+                search_status = json.loads(search_result)
+                if type(search_status) is not dict:
+                    search_status = None
+            except Exception as exc:
+                #search_status = {'failed': True}
+                logger.warning('search request failed: ' + str(exc))
+                self._write_error('search request failed')
+                return
+
+            res = json.dumps(search_status)
+            self._write_json(res)
+
             return
 
         if 'STOP' == command:
@@ -556,7 +609,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                     pass
                 nodes.set_node(pid, None)
 
-            is_running = self._check_running(pid)
+            is_running = check_running(pid)
 
             res = json.dumps({'node': int(pid), 'status': is_running})
             self._write_json(res)
@@ -567,13 +620,13 @@ class RequestHandler(BaseHTTPRequestHandler):
             try:
                 data_string = self.req_post_data
             except:
-                self._write_error('no spec data')
+                self._write_error('no stream spec data')
                 return
 
             try:
                 data_struct = json.loads(data_string.strip())
             except:
-                self._write_error('can not parse spec data')
+                self._write_error('can not parse stream spec data')
                 return
 
             self.node_path = params.get_node_path()
@@ -599,7 +652,7 @@ class RequestHandler(BaseHTTPRequestHandler):
 
             logger.info('started new node: ' + str(pid))
 
-            is_running = self._check_running(pid)
+            is_running = check_running(pid)
             if is_running:
                 nodes.set_node(pid, new_process)
 
@@ -619,27 +672,32 @@ def start_search_node():
     search_port = params.get_search_port()
     search_path = params.get_search_path()
 
-    self.exec_params = [SEARCH_NAME, self.search_path, '-s', params.get_save_url(), '-w', '127.0.0.1', '-p', str(search_port)]
+    if not os.path.isfile(search_path):
+        logger.warning('the search node path not available: ' + str(search_path))
+        return False
+
+    search_exec_params = [SEARCH_NAME, search_path, '-s', params.get_save_url(), '-w', '127.0.0.1', '-p', str(search_port)]
 
     pid = None
     executable_name = 'python' + str(sys.version_info.major) + '.' +str(sys.version_info.minor)
 
     twitter_params = {}
     # TODO: load it according to a startup option
-    oauth_set_path = '/tmp/oauths.py'
+    oauth_set_path = params.get_search_oauth()
 
     oath_loaded = False
-    # python2/python3.2 way
-    try:
-        import imp
-        oauths = imp.load_source('oauths_data', oauth_set_path)
-        twitter_params['oauth_info'] = oauths.oauth_info
-        oath_loaded = True
-    except Exception as exc:
-        oath_loaded = False
-
-    # python3.3+ way
-    if not oath_loaded:
+    if (2 == sys.version_info.major) or ((3 == sys.version_info.major) and (2 == sys.version_info.minor)):
+        # python2/python3.2 way
+        try:
+            import imp
+            oauths = imp.load_source('oauths_data', oauth_set_path)
+            twitter_params['oauth_info'] = oauths.oauth_info
+            oath_loaded = True
+        except Exception as exc:
+            logger.warning('error during (imp) loading oauth info: ' + str(exc))
+            oath_loaded = False
+    else:
+        # python3.3+ way
         try:
             import importlib.machinery
             loader = importlib.machinery.SourceFileLoader('oauths_data', oauth_set_path)
@@ -647,29 +705,31 @@ def start_search_node():
             twitter_params['oauth_info'] = oauths.oauth_info
             oath_loaded = True
         except Exception as exc:
+            logger.warning('error during (importlib) loading oauth info: ' + str(exc))
             oath_loaded = False
 
     if not oath_loaded:
         logger.warning('can not load oauth keys')
-        return
+        return False
 
     try:
-        new_process = subprocess.Popen(self.exec_params, bufsize=1, stdin=subprocess.PIPE, close_fds=True, executable=executable_name)
+        new_process = subprocess.Popen(search_exec_params, bufsize=1, stdin=subprocess.PIPE, close_fds=True, executable=executable_name)
         new_process.stdin.write(json.dumps(twitter_params) + '\n')
         new_process.stdin.flush()
         pid = new_process.pid
     except Exception as exc:
         logger.warning('can not write to search node')
         logger.warning('error during search node creation: ' + str(exc))
-        return
+        return False
 
     if not pid:
-        logger.warning('can not start search node')
-        return
+        logger.warning('can not start the search node')
+        return False
 
     logger.info('started search node: ' + str(pid))
 
-    is_running = self._check_running(pid)
+    is_running = check_running(pid)
+    return is_running
 
 def daemonize(work_dir, pid_path):
     global status
@@ -815,7 +875,11 @@ if __name__ == '__main__':
         set_user(params.get_user_id(), params.get_group_id(), params.get_pid_path())
 
     try:
-        start_search_node()
+        has_search = start_search_node()
+        if not has_search:
+            logger.error('has not started the Newstwister search node')
+            status.set_status(1)
+            sys.exit(1)
     except Exception as exc:
         logger.error('can not start the Newstwister search node: ' + str(exc))
         status.set_status(1)

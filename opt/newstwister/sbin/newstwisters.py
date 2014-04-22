@@ -24,6 +24,7 @@ asynchronously:
 '''
 
 import sys, os, time, json, argparse, re
+import random
 import urllib, select
 import oauth2 as oauth
 import signal, atexit
@@ -114,7 +115,7 @@ class SaveSpecs():
     def use_specs(self):
         parser = argparse.ArgumentParser()
         parser.add_argument('-w', '--web_address', help='web address to listen at')
-        parser.add_argument('-p', '--web_port', help='web port to listen at')
+        parser.add_argument('-p', '--web_port', help='web port to listen at', type=int)
         parser.add_argument('-s', '--save_url', help='url for saving the tweets')
 
         args = parser.parse_args()
@@ -134,6 +135,7 @@ class RequestQueue(object):
         self.processed_request = None
         self.got_twt_data = []
         self.tweets = []
+        self.errors = {}
 
 class StringProducer(object):
     implements(IBodyProducer)
@@ -169,6 +171,19 @@ class TwtResponseBorders(object):
         debug_msg('Twt response headers:')
         debug_msg(pformat(list(response.headers.getAllRawHeaders())))
 
+        if '200' != str(response.code):
+            self.searches.errors = {
+                'code': response.code,
+                'phrase': response.phrase
+            }
+            if str(response.code) in ['420', '429']:
+                self.searches.errors['over_limit'] = True
+            self.queue_processor.trigger_use_tweets()
+            self.queue_processor = None
+            self.searches = None
+            debug_msg('twitter dislikes the request')
+            return False
+
         finished = Deferred()
         response.deliverBody(TweetProcessor(finished, self, self.queue_processor, self.searches))
         return finished
@@ -189,7 +204,6 @@ class TweetProcessor(Protocol):
         self.queue_processor = queue_processor
         self.searches = searches
         self.to_continue = False
-        #self.buffers = []
         self.current = ''
 
     def connectionMade(self):
@@ -200,24 +214,16 @@ class TweetProcessor(Protocol):
 
         self.current += data
         if data.endswith('\r\n') and self.current.strip(): # some finished message
-            #self.buffers.append(self.current)
             self.searches.got_twt_data.append(self.current)
             self.current = ''
-
-            #message = json.loads(self.buffer)
-            ## putting the tweet into elastic search
-            #tws = TweetSaver()
-            #tws.save_tweet(message)
 
     def connectionLost(self, reason):
-        #debug_msg('Finished receiving Twitter stream: ' + str(reason.getErrorMessage()))
+        #debug_msg('Finished receiving Twitter search: ' + str(reason.getErrorMessage()))
         self.finished.callback(None)
         if self.current:
-            #self.buffers.append(self.current)
             self.searches.got_twt_data.append(self.current)
             self.current = ''
 
-        #self.searches.tweets = []
         for one_data_set in self.searches.got_twt_data:
             try:
                 data_str = json.loads(one_data_set)
@@ -250,7 +256,10 @@ class AuthProcessor(object):
         return urllib.urlencode(search_params)
 
     def get_oauth_header(self, param_part):
-        global oauth_info
+        global oauth_info_list
+        oauth_index = random.randint(0, (len(oauth_info_list) - 1))
+
+        oauth_info = oauth_info_list[oauth_index]
 
         oauth_consumer = oauth.Consumer(key=oauth_info['consumer_key'], secret=oauth_info['consumer_secret'])
         oauth_token = oauth.Token(key=oauth_info['access_token_key'], secret=oauth_info['access_token_secret'])
@@ -277,10 +286,6 @@ class AuthProcessor(object):
 class QueueProcessor(object):
     def __init__(self, searches):
         self.searches = searches
-        #self.under_processing = False
-        #self.request_queue = []
-        #self.processed_request = None
-        #self.got_twt_data = []
         self.tweet_count = 0
 
     def _finish_request(self, request, code=None, message=None):
@@ -345,6 +350,7 @@ class QueueProcessor(object):
             return False
         self.searches.under_processing = True
 
+        self.searches.errors = {}
         self.searches.tweets = []
         self.searches.got_twt_data = []
         self.searches.processed_request = self.searches.request_queue.pop(0)
@@ -367,13 +373,9 @@ class QueueProcessor(object):
         d.addCallback(borders.cbRequest)
         d.addBoth(borders.cbShutdown)
 
-        #self.searches.processed_request['twitter'] = d
-
         return True
 
     def _utilize_tweets(self, params=None):
-        #self.searches.processed_request['twitter'] = None
-
         # send data stored in self.searches.tweets
 
         tweet_id = None
@@ -448,8 +450,12 @@ class QueueProcessor(object):
         except:
             pass
 
+        return_data = {'count': self.tweet_count}
+        if self.searches.errors:
+            return_data['errors'] = self.searches.errors
+
         try:
-            self.searches.processed_request['request'].write(json.dumps({'count': self.tweet_count}))
+            self.searches.processed_request['request'].write(json.dumps(return_data))
         except:
             pass
 
@@ -459,6 +465,7 @@ class QueueProcessor(object):
             pass
 
         self.tweet_count = 0
+        self.searches.errors = {}
         self.searches.tweets = []
         self.searches.got_twt_data = []
         self.searches.processed_request = None
@@ -699,20 +706,17 @@ class ElsResponseBorders(object):
         debug_msg('shutting down els connection')
         pass
 
-# General script passage
-
-#def signal_handler(signal_number, frame):
-#    #global d
-#
-#    #d.cancel()
-#    reactor.disconnectAll()
-#    process_quit(signal_number, frame)
-
 def process_quit(signal_number, frame):
     try:
         reactor.disconnectAll()
     except:
         pass
+
+    try:
+        reactor.stop()
+    except:
+        pass
+
     cleanup()
 
 def cleanup():
@@ -720,28 +724,15 @@ def cleanup():
     debug_msg('stopping the process')
     os._exit(0)
 
-#endpoint = {
-#    'endpoint_id': None
-#}
-oauth_info = {
-    'consumer_key': None,
-    'consumer_secret': None,
-    'access_token_key': None,
-    'access_token_secret': None
-}
-#stream_filter = {}
-#stream_filter_basic = [
-#    'follow',
-#    'track',
-#    'locations'
-#]
-#stream_filter_other = [
-#    'filter_level',
-#    'language'
-#]
+oauth_info_base = [
+    'consumer_key',
+    'consumer_secret',
+    'access_token_key',
+    'access_token_secret'
+]
+oauth_info_list = []
 
 if __name__ == '__main__':
-    from search_auth import oauth_info
 
     if not set_proc_name():
         sys.exit(1)
@@ -782,24 +773,33 @@ if __name__ == '__main__':
         try:
             if not 'oauth_info' in twitter_params:
                 is_correct = False
-            elif type(twitter_params['oauth_info']) is not dict:
+            elif type(twitter_params['oauth_info']) not in [list, tuple]:
                 is_correct = False
         except:
             is_correct = False
 
     if is_correct:
-        for part in oauth_info:
-            if not part in twitter_params['oauth_info']:
+        for oauth_set in twitter_params['oauth_info']:
+            if not is_correct:
+                break
+            if type(oauth_set) is not dict:
                 is_correct = False
                 break
-            if not twitter_params['oauth_info'][part]:
-                is_correct = False
-                break
-            try:
-                oauth_info[part] = str(twitter_params['oauth_info'][part])
-            except:
-                is_correct = False
-                break
+            one_oauth_use = {}
+            for part in oauth_info_base:
+                if not part in oauth_set:
+                    is_correct = False
+                    break
+                if not oauth_set[part]:
+                    is_correct = False
+                    break
+                try:
+                    one_oauth_use[part] = str(oauth_set[part])
+                except:
+                    is_correct = False
+                    break
+            if is_correct:
+                oauth_info_list.append(one_oauth_use)
 
     if is_correct:
         searches = RequestQueue()
