@@ -403,7 +403,7 @@ class QueueProcessor(object):
         save_data = {}
         save_data['request'] = request_id
         save_data['type'] = 'search'
-        save_data['endpoint'] = user_id
+        save_data['endpoint'] = {'endpoint_id': user_id}
         save_data['filter'] = self.searches.processed_request['search_spec']
         save_data['tweet'] = current_tweet
 
