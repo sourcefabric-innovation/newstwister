@@ -61,6 +61,7 @@ case "$1" in
         --pidfile $PIDFILE || true
 
     killall newstwistern 2> /dev/null || true
+    killall newstwisters 2> /dev/null || true
     log_end_msg 0
     ;;
 
