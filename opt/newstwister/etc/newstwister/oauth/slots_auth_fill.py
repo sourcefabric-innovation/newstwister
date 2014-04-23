@@ -2,7 +2,8 @@
 # -*- coding: utf-8 -*-
 
 '''
-#put (sets of) API keys into search_auth.py file, alike:
+# fill in the API key sets that shoud be saved into DB
+# it shoud be put into "slots_auth.py" file, alike:
 
 _oauth_info_1 = {
     'consumer_key': '',
@@ -14,5 +15,6 @@ _oauth_info_1 = {
 oauth_info = [
     _oauth_info_1,
 ]
+
 '''
 
