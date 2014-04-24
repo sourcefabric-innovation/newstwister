@@ -97,8 +97,7 @@ class Params():
         global stream_filter
 
         post_params = {}
-        post_params['include_entities'] = 0
-        post_params['stall_warning'] = 'true'
+        post_params['stall_warnings'] = 'true'
 
         for one_key in stream_filter:
             try:
@@ -129,7 +128,7 @@ class Params():
         conn_headers = {}
         conn_headers['Host'] = ['stream.twitter.com']
         conn_headers['Authorization'] = [self.get_oauth_header()]
-        conn_headers['User-Agent'] = ['testing steamer']
+        conn_headers['User-Agent'] = ['Newstwister']
         conn_headers['Content-Type'] = ['application/x-www-form-urlencoded']
 
         return conn_headers
@@ -185,19 +184,19 @@ class TweetSaver(object):
 
         conn_headers = {}
         conn_headers['Host'] = [host]
-        conn_headers['User-Agent'] = ['twister-node']
+        conn_headers['User-Agent'] = ['Newstwister']
         conn_headers['Content-Type'] = ['application/json']
         conn_headers['Accept'] = ['application/json']
 
         return conn_headers
 
     def save_tweet(self, tweet):
-        #TODO: tweets should contain info on stream specs, so that it is possible to match them to end-points
-        #      filter specs should be added as well, to allow term highlighting
         tweet_id = tweet.get('id_str')
         if not tweet_id:
             return False
         save_data = {}
+        save_data['request'] = None
+        save_data['type'] = 'stream'
         save_data['endpoint'] = endpoint
         save_data['filter'] = stream_filter
         save_data['tweet'] = tweet
@@ -319,6 +318,10 @@ class TwtResponseBorders():
         debug_msg('Twt response headers:')
         debug_msg(pformat(list(response.headers.getAllRawHeaders())))
 
+        if '200' != str(response.code):
+            close_reactor()
+            return
+
         finished = Deferred()
         response.deliverBody(TweetProcessor(finished))
         return finished
@@ -326,7 +329,20 @@ class TwtResponseBorders():
     def cbShutdown(self, ignored):
         debug_msg(ignored)
         debug_msg('shutting twt down')
-        #reactor.stop()
+        close_reactor()
+
+def close_reactor():
+    try:
+        reactor.disconnectAll()
+    except:
+        pass
+
+    try:
+        reactor.stop()
+    except:
+        pass
+
+    cleanup()
 
 def make_stream_connection():
     params = Params()
@@ -349,14 +365,15 @@ def make_stream_connection():
 
 # General script passage
 
-def signal_handler(signal_number, frame):
+def process_quit(signal_number, frame):
     global d
 
-    d.cancel()
-    reactor.disconnectAll()
-    process_quit(signal_number, frame)
+    try:
+        d.cancel()
+    except:
+        pass
 
-def process_quit(signal_number, frame):
+    close_reactor()
     cleanup()
 
 def cleanup():
@@ -391,7 +408,7 @@ if __name__ == '__main__':
 
     save_specs.use_specs()
 
-    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGINT, process_quit)
     signal.signal(signal.SIGTERM, process_quit)
 
     atexit.register(cleanup)
@@ -426,15 +443,11 @@ if __name__ == '__main__':
                 is_correct = False
             elif type(twitter_params['oauth_info']) is not dict:
                 is_correct = False
-            #else:
-            #    oauth_info = twitter_params['oauth_info']
 
             if not 'stream_filter' in twitter_params:
                 is_correct = False
             elif type(twitter_params['stream_filter']) is not dict:
                 is_correct = False
-            #else:
-            #    stream_filter = twitter_params['stream_filter']
 
             if not 'endpoint' in twitter_params:
                 is_correct = False

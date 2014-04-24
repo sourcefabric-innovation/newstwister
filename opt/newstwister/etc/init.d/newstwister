@@ -20,6 +20,9 @@ NODE=/opt/newstwister/sbin/newstwistern.py
 PIDFILE=/opt/newstwister/var/run/newstwisterd.pid
 LOGFILE=/opt/newstwister/var/log/newstwister/newstwisterd.log
 WEBPORT=9054
+SEARCHPORT=9053
+SEARCHPATH=/opt/newstwister/sbin/newstwisters.py
+SEARCHAUTH=/opt/newstwister/etc/newstwister/oauth/search_auth.py
 WEBHOST=localhost
 SAVEURL="http://localhost:9055/newstwister/tweets/"
 CLIENTS=/opt/newstwister/etc/newstwister/allowed.conf
@@ -45,6 +48,7 @@ case "$1" in
 
     start-stop-daemon --start --quiet --pidfile $PIDFILE --startas $DAEMON -- \
         -w $WEBHOST -p $WEBPORT -i $PIDFILE -l $LOGFILE -n $NODE -s $SAVEURL \
+        -t $SEARCHPORT -e $SEARCHPATH -o $SEARCHAUTH \
         -d -u $USER -g $GROUP -a $CLIENTS || true
 
     log_end_msg 0
@@ -57,6 +61,7 @@ case "$1" in
         --pidfile $PIDFILE || true
 
     killall newstwistern 2> /dev/null || true
+    killall newstwisters 2> /dev/null || true
     log_end_msg 0
     ;;
 
