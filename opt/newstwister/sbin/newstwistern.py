@@ -28,6 +28,9 @@ except:
         sys.stderr.write('either the setproctitle module has to be available, or the OS has to be Linux')
         sys.exit(1)
 
+DISCONNECT_INTERVAL_MIN = 10
+DISCONNECT_COUNT_MAX = 5
+
 SAVE_URL = 'http://localhost:9200/newstwister/tweets/'
 
 PR_SET_NAME = 15
@@ -353,9 +356,12 @@ class TweetProcessor(Protocol):
         debug_msg('Finished receiving Twitter stream: ' + str(reason.getErrorMessage()))
         self.finished.callback(None)
 
+twitter_got_connected = False
 class TwtResponseBorders():
     def cbRequest(self, response):
         global logger
+        global twitter_got_connected
+        twitter_got_connected = True
 
         debug_msg('Twt response version:' + str(response.version))
         debug_msg('Twt response code:' + str(response.code))
@@ -364,7 +370,7 @@ class TwtResponseBorders():
         debug_msg(pformat(list(response.headers.getAllRawHeaders())))
 
         if '200' != str(response.code):
-            logger.warning('Twitter refused stream connection: ' + str(response.code))
+            logger.warning('Twitter disliked stream connection: ' + str(response.code))
             notify_stopped()
             close_reactor()
             return
@@ -376,12 +382,18 @@ class TwtResponseBorders():
     def cbShutdown(self, ignored):
         global forced_quit
         global logger
+        global twitter_got_connected
 
         debug_msg(ignored)
         debug_msg('shutting twt down')
         if not forced_quit:
-            logger.warning('Twitter connection got down')
-            reactor.callLater(0.1, adapt_to_disconnect, {})
+            if twitter_got_connected:
+                logger.warning('Twitter connection got down')
+                reactor.callLater(0.1, adapt_to_disconnect, {})
+            else:
+                logger.warning('Twitter refused stream connection')
+                notify_stopped()
+                close_reactor()
 
 def close_reactor():
     try:
@@ -400,11 +412,35 @@ def notify_stopped():
     # we may want to trigger a global notification action here
     pass
 
+
+disconnect_last = time.time()
+disconnect_count = 0
 disconnect_code = None
 def adapt_to_disconnect():
+    global disconnect_last
+    global disconnect_count
     global disconnect_code
 
+    to_stop = False
+
+    # for disconnect codes, look at:
+    # https://dev.twitter.com/docs/streaming-apis/messages#Disconnect_messages_disconnect
+    disconnect_count += 1
+    if disconnect_code in [12]:
+        disconnect_count = 1
+
+    current_time = time.time()
+    if current_time > (disconnect_last + DISCONNECT_INTERVAL_MIN):
+        disconnect_count = 1
+    if disconnect_count > DISCONNECT_COUNT_MAX:
+        to_stop = True
+        debug_msg('stopping, since too many (' + str(disconnect_count) + ') disconnects in short intervals')
+
     if disconnect_code in [2, 6, 7, 9]:
+        to_stop = True
+        debug_msg('stopping, since disconnect code considered severe: ' + str(disconnect_code))
+
+    if to_stop:
         notify_stopped()
         close_reactor()
         return

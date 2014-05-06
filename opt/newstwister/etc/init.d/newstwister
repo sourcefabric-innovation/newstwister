@@ -41,6 +41,8 @@ case "$1" in
   start)
     touch $LOGFILE
     chown $USER.$GROUP $LOGFILE
+    touch $LOGFILESTREAMS
+    chown $USER.$GROUP $LOGFILESTREAMS
     touch $PIDFILE
     chown $USER.$GROUP $PIDFILE
 
