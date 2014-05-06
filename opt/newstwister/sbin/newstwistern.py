@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import sys, os, time, json, argparse
+import logging, logging.handlers
 import urllib, select
 import oauth2 as oauth
 import signal, atexit
@@ -32,15 +33,38 @@ SAVE_URL = 'http://localhost:9200/newstwister/tweets/'
 PR_SET_NAME = 15
 NODE_NAME = 'newstwistern'
 
-TODEBUG = False
-DEBUGPATH = '/tmp/newstwister_node.debug'
+to_debug = False
+DEBUG_PATH = '/tmp/newstwister_node.debug'
+
+logger = logging.getLogger()
+
+def setup_logger(log_path):
+    global logger
+
+    while logger.handlers:
+        logger.removeHandler(logger.handlers[-1])
+
+    formatter = logging.Formatter("%(levelname)s [%(asctime)s]: %(message)s")
+
+    if log_path:
+        fh = logging.handlers.WatchedFileHandler(log_path)
+        fh.setFormatter(formatter)
+        logger.addHandler(fh)
+    else:
+        sh = logging.StreamHandler()
+        sh.setFormatter(formatter)
+        logger.addHandler(sh)
+
+    logger.setLevel(logging.INFO)
 
 def debug_msg(msg):
-    if not TODEBUG:
+    global to_debug
+
+    if not to_debug:
         return
 
     try:
-        fh = open(DEBUGPATH, 'a+')
+        fh = open(DEBUG_PATH, 'a+')
         fh.write(str(msg) + '\n')
         fh.flush()
         fh.close()
@@ -72,23 +96,27 @@ def set_proc_name():
 class SaveSpecs():
     def __init__(self):
         self.specs = {
-            'save_url': SAVE_URL
+            'save_url': SAVE_URL,
+            'log_path': None
         }
     def get_specs(self):
         return self.specs
 
-    def set_specs(self, save_url):
-        self.specs = {
-            'save_url': save_url
-        }
-
     def use_specs(self):
+        global to_debug
+
         parser = argparse.ArgumentParser()
         parser.add_argument('-s', '--save_url', help='url for saving the tweets')
+        parser.add_argument('-l', '--log_path', help='path to log file')
+        parser.add_argument('-d', '--debug', help='whether to write debug info', action='store_true')
 
         args = parser.parse_args()
         if args.save_url:
             self.specs['save_url'] = args.save_url
+        if args.log_path:
+            self.specs['log_path'] = args.log_path
+        if args.debug:
+            to_debug = True
 
 save_specs = SaveSpecs()
 
@@ -191,6 +219,8 @@ class TweetSaver(object):
         return conn_headers
 
     def save_tweet(self, tweet):
+        global stream_spec_original
+
         tweet_id = tweet.get('id_str')
         if not tweet_id:
             return False
@@ -198,7 +228,7 @@ class TweetSaver(object):
         save_data['request'] = None
         save_data['type'] = 'stream'
         save_data['endpoint'] = endpoint
-        save_data['filter'] = stream_filter
+        save_data['filter'] = stream_spec_original
         save_data['tweet'] = tweet
 
         tweet_data = json.dumps(save_data)
@@ -251,6 +281,8 @@ class TweetProcessor(Protocol):
         self.count = 0
 
     def _process_tweet(self, data):
+        global disconnect_code
+        global logger
 
         self.buffer += data
         if data.endswith('\r\n') and self.buffer.strip(): # some finished message
@@ -259,14 +291,26 @@ class TweetProcessor(Protocol):
 
             # status messages
             if message.get('limit'): # error (not a tweet), over the rate limit
-                debug_msg('rate limit over, count of missed tweets: ' + str(message['limit'].get('track')))
+                limit_msg = 'rate limit over, count of missed tweets: ' + str(message['limit'].get('track'))
+                debug_msg(limit_msg)
+                logger.warning(limit_msg)
                 pass
             elif message.get('disconnect'): # error (not a tweet), got disconnected
-                debug_msg('disconnected: ' + str(message['disconnect'].get('reason')))
-                pass
-                # should restart the read cycle!
+                disconnect_msg = 'disconnected: (' + str(message['disconnect'].get('code')) + ') '
+                disconnect_msg += str(message['disconnect'].get('reason'))
+                debug_msg(disconnect_msg)
+                logger.warning(disconnect_msg)
+                # should restart the read cycle if not severe reason for disconnect
+                disconnect_code = message['disconnect'].get('code')
+                try:
+                    disconnect_code = int(disconnect_code)
+                except:
+                    pass
+
             elif message.get('warning'): # warning (not a tweet)
-                debug_msg('warning: ' + str(message['warning'].get('message')))
+                warning_msg = 'warning: ' + str(message['warning'].get('message'))
+                debug_msg(warning_msg)
+                logger.warning(warning_msg)
                 pass
 
             # actual tweet
@@ -311,6 +355,7 @@ class TweetProcessor(Protocol):
 
 class TwtResponseBorders():
     def cbRequest(self, response):
+        global logger
 
         debug_msg('Twt response version:' + str(response.version))
         debug_msg('Twt response code:' + str(response.code))
@@ -319,6 +364,8 @@ class TwtResponseBorders():
         debug_msg(pformat(list(response.headers.getAllRawHeaders())))
 
         if '200' != str(response.code):
+            logger.warning('Twitter refused stream connection: ' + str(response.code))
+            notify_stopped()
             close_reactor()
             return
 
@@ -327,9 +374,14 @@ class TwtResponseBorders():
         return finished
 
     def cbShutdown(self, ignored):
+        global forced_quit
+        global logger
+
         debug_msg(ignored)
         debug_msg('shutting twt down')
-        close_reactor()
+        if not forced_quit:
+            logger.warning('Twitter connection got down')
+            reactor.callLater(0.1, adapt_to_disconnect, {})
 
 def close_reactor():
     try:
@@ -344,9 +396,33 @@ def close_reactor():
 
     cleanup()
 
+def notify_stopped():
+    # we may want to trigger a global notification action here
+    pass
+
+disconnect_code = None
+def adapt_to_disconnect():
+    global disconnect_code
+
+    if disconnect_code in [2, 6, 7, 9]:
+        notify_stopped()
+        close_reactor()
+        return
+
+    reactor.callLater(0.5, restart_stream, {})
+
+def restart_stream():
+    global d
+    d = make_stream_connection()
+
 def make_stream_connection():
+    disconnect_code = None
+    debug_msg('making stream connection')
+
     params = Params()
-    post_data = urllib.urlencode(params.get_post_params())
+    post_params = params.get_post_params()
+    post_data = urllib.urlencode(post_params)
+    debug_msg('using stream params: ' + str(post_params))
 
     contextFactory = TwtClientContextFactory()
     agent = Agent(reactor, contextFactory)
@@ -365,8 +441,14 @@ def make_stream_connection():
 
 # General script passage
 
+forced_quit = False
 def process_quit(signal_number, frame):
     global d
+    global forced_quit
+
+    forced_quit = True
+
+    debug_msg('stream process asked to quit')
 
     try:
         d.cancel()
@@ -377,8 +459,9 @@ def process_quit(signal_number, frame):
     cleanup()
 
 def cleanup():
+    logger.info('Twitter stream ends')
     debug_msg(str(os.getpid()))
-    debug_msg('stopping the process')
+    debug_msg('stopping the stream process')
     os._exit(0)
 
 endpoint = {
@@ -400,6 +483,7 @@ stream_filter_other = [
     'filter_level',
     'language'
 ]
+stream_spec_original = None
 
 if __name__ == '__main__':
 
@@ -407,6 +491,9 @@ if __name__ == '__main__':
         sys.exit(1)
 
     save_specs.use_specs()
+
+    log_path = save_specs.get_specs()['log_path']
+    setup_logger(log_path)
 
     signal.signal(signal.SIGINT, process_quit)
     signal.signal(signal.SIGTERM, process_quit)
@@ -506,6 +593,11 @@ if __name__ == '__main__':
             except:
                 is_correct = False
                 break
+
+    if is_correct:
+        if 'stream_spec_original' in twitter_params:
+            if type(twitter_params['stream_spec_original']) is dict:
+                stream_spec_original = twitter_params['stream_spec_original']
 
     if is_correct:
         try:

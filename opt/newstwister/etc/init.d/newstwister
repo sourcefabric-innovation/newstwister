@@ -19,6 +19,7 @@ DAEMON=/opt/newstwister/sbin/newstwisterd.py
 NODE=/opt/newstwister/sbin/newstwistern.py
 PIDFILE=/opt/newstwister/var/run/newstwisterd.pid
 LOGFILE=/opt/newstwister/var/log/newstwister/newstwisterd.log
+LOGFILESTREAMS=/opt/newstwister/var/log/newstwister/newstwistern.log
 WEBPORT=9054
 SEARCHPORT=9053
 SEARCHPATH=/opt/newstwister/sbin/newstwisters.py
@@ -48,7 +49,7 @@ case "$1" in
 
     start-stop-daemon --start --quiet --pidfile $PIDFILE --startas $DAEMON -- \
         -w $WEBHOST -p $WEBPORT -i $PIDFILE -l $LOGFILE -n $NODE -s $SAVEURL \
-        -t $SEARCHPORT -e $SEARCHPATH -o $SEARCHAUTH \
+        -m $LOGFILESTREAMS -t $SEARCHPORT -e $SEARCHPATH -o $SEARCHAUTH \
         -d -u $USER -g $GROUP -a $CLIENTS || true
 
     log_end_msg 0
