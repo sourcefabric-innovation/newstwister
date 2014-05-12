@@ -39,6 +39,7 @@ test -x $DAEMON || exit 0
 
 case "$1" in
   start)
+    # move/roll log files, if they are too big
     touch $LOGFILE
     chown $USER.$GROUP $LOGFILE
     touch $LOGFILESTREAMS
