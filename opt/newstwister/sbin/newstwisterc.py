@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 '''
-this is for common simpke rest-based requests;
+this is for common simple rest-based requests;
 here we shall use simple urllib-based processing,
 since these shall be simple, non-frequent queries
 '''
@@ -24,11 +24,11 @@ else:
     from SocketServer import ForkingMixIn as WebMixIn
 
 WEB_ADDRESS = '127.0.0.1'
-WEB_PORT = 9053
-SAVE_URL = 'http://localhost:9200/newstwister/users/'
+WEB_PORT = 9052
+SAVE_URL_USERS = 'http://localhost:9200/newstwister/users/'
 
 to_debug = False
-DEBUG_PATH = '/tmp/newstwister_search.debug'
+DEBUG_PATH = '/tmp/newstwister_common.debug'
 
 def debug_msg(msg):
     global to_debug
@@ -52,7 +52,7 @@ except:
         sys.exit(1)
 
 PR_SET_NAME = 15
-NODE_NAME = 'newstwisteru'
+NODE_NAME = 'newstwisterc'
 
 def set_proc_name():
     name_set = False
@@ -76,22 +76,15 @@ def set_proc_name():
 
     return True
 
-class SaveSpecs():
+class RunSpecs():
     def __init__(self):
         self.specs = {
             'web_address': WEB_ADDRESS,
             'web_port': WEB_PORT,
-            'save_url': SAVE_URL
+            'save_url': {'user_info': SAVE_URL_USERS}
         }
     def get_specs(self):
         return self.specs
-
-    def set_specs(self, web_address, web_port, save_url):
-        self.specs = {
-            'web_address': web_address,
-            'web_port': web_port,
-            'save_url': save_url
-        }
 
     def use_specs(self):
         global to_debug
@@ -99,7 +92,7 @@ class SaveSpecs():
         parser = argparse.ArgumentParser()
         parser.add_argument('-w', '--web_address', help='web address to listen at')
         parser.add_argument('-p', '--web_port', help='web port to listen at', type=int)
-        parser.add_argument('-s', '--save_url', help='url for saving the tweets')
+        parser.add_argument('-u', '--save_url_users', help='url for saving the users info')
         parser.add_argument('-d', '--debug', help='whether to write debug info', action='store_true')
 
         args = parser.parse_args()
@@ -107,24 +100,23 @@ class SaveSpecs():
             self.specs['web_address'] = args.web_address
         if args.web_port:
             self.specs['web_port'] = args.web_port
-        if args.save_url:
-            self.specs['save_url'] = args.save_url
+        if args.save_url_users:
+            self.specs['save_url']['user_info'] = args.save_url_users
 
         if args.debug:
             to_debug = True
 
-save_specs = SaveSpecs()
+run_specs = RunSpecs()
 
 class TwtInquirer(object):
 
-    def __init__(self, oauth_info_list):
-        oauth_index = random.randint(0, (len(oauth_info_list) - 1))
-        self.oauth_info = oauth_info_list[oauth_index]
+    def __init__(self, oauth_info):
+        self.oauth_info = oauth_info
 
     def process_request(self, request_type, request_params):
         spec = self.take_request_spec()
         if not spec:
-            return False
+            return (False, 'no recognized spec provided')
 
         effective_url = spec['url']
         if spec['params']:
@@ -154,10 +146,10 @@ class TwtInquirer(object):
             got_user_spec = False
             if ('user_name' in request_params) and request_params['user_name']:
                 spec['url'] += 'screen_name=' + str(request_params['user_name'])
-                got_user_spec = False
+                got_user_spec = True
             if (not got_user_spec) and ('user_id' in request_params) and request_params['user_id']:
                 spec['url'] += 'user_id=' + str(request_params['user_id'])
-                got_user_spec = False
+                got_user_spec = True
             if not got_user_spec:
                 return False
 
@@ -218,23 +210,23 @@ class TwtInquirer(object):
             response.close()
             search_result = json.loads(search_data)
             if type(search_result) is not dict:
-                search_result = None
+                return (False, 'unknown form of result data from twitter')
         except Exception as exc:
-            search_result = None
+            return (False, 'can not get data from twitter')
 
-        return search_result
+        return (True, search_result)
 
 class ElsDepositor(object):
-    def __init__(self, request_type):
+    def __init__(self, request_type, save_url):
         self.request_type = request_type
-        self.save_url = params.get_save_url(request_type)
+        self.save_url = save_url
 
     def save_result_data(self, data):
         if 'user_info' == self.request_type:
             res = self.send_request(data)
             return res
 
-        return None
+        return (False, 'unknown data type for saving')
 
     def send_request(save_data):
         save_status = None
@@ -252,20 +244,50 @@ class ElsDepositor(object):
             save_result = response.read()
             save_status = json.loads(save_result)
         except Exception as exc:
-            save_status = None
+            return (False, 'can not save the data')
 
-        return save_status
+        return (True, save_status)
 
 class RequestHandler(BaseHTTPRequestHandler):
 
+    def _write_error(self, msg):
+        self.send_response(404)
+        self.end_headers()
+        self.wfile.write(str(msg) + '\n')
+
+    def _write_json(self, msg):
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self.end_headers()
+        self.wfile.write(str(msg) + '\n')
+
     def run_pipe(self, request_type, request_params):
         global oauth_info_list
+        global run_specs
 
-        twtr = TwtInquirer(oauth_info_list)
-        data = twtr.process_request(request_type, request_params)
+        oauth_index = random.randint(0, (len(oauth_info_list) - 1))
+        oauth_info = oauth_info_list[oauth_index]
 
-        elsd = ElsDepositor(params.get_save_url())
-        elsd.save_result_data(data)
+        try:
+            specs = run_specs.get_specs()
+            save_url = specs['save_url'][request_type]
+        except:
+            return (False, 'no save-url was provided')
+
+        twtr = TwtInquirer(oauth_info)
+        res = twtr.process_request(request_type, request_params)
+        if not res:
+            return (False, 'error during twitter-related processing')
+        if not res[0]:
+            return res
+        data = res[1]
+
+        elsd = ElsDepositor(save_url)
+        res = elsd.save_result_data(data)
+        if not res:
+            return (False, 'error during data-saving processing')
+
+        return res
 
     def do_POST(self):
 
@@ -274,35 +296,53 @@ class RequestHandler(BaseHTTPRequestHandler):
             try:
                 content_length = int(self.headers.getheader('Content-Length'))
             except:
-                content_length = 0
+                self._write_error('no length info on request data provided')
+                return
 
         try:
             self.req_post_data = self.rfile.read(content_length)
         except:
-            self.req_post_data = None
+            self._write_error('can not read request spec data')
+            return
 
         try:
             data_struct = json.loads(data_string.strip())
         except:
-            #self._write_error('can not parse request spec data')
+            self._write_error('can not parse request spec data')
             return
 
         if type(data_struct) is not dict:
+            self._write_error('request data not in a form of dict')
             return
 
         if 'type' not in data_struct:
+            self._write_error('"type" not provided in request')
             return
         if 'params' not in data_struct:
+            self._write_error('"params" not provided in request')
             return
 
         res = self.run_pipe(data_struct['type'], data_struct['params'])
-        return res
+
+        if not res:
+            self._write_error('can not process data')
+            return
+        if not res[0]:
+            self._write_error(res[1])
+            return
+
+        answer = json.dumps(res[1])
+        self._write_json(answer)
+        return
 
 class DerivedHTTPServer(WebMixIn, HTTPServer):
     pass
 
 def run_server():
-    server_address = (params.get_web_host(), params.get_web_port())
+    global run_specs
+    specs = run_specs.get_specs()
+
+    server_address = (specs['web_address'], specs['web_port'])
     httpd = DerivedHTTPServer(server_address, RequestHandler)
     httpd.serve_forever()
 
@@ -314,8 +354,6 @@ def cleanup():
     debug_msg(str(os.getpid()))
     debug_msg('stopping the process')
     os._exit(0)
-
-save_urls = {}
 
 oauth_info_base = [
     'consumer_key',
@@ -330,8 +368,7 @@ if __name__ == '__main__':
     if not set_proc_name():
         sys.exit(1)
 
-    save_specs.use_specs()
-    specs = save_specs.get_specs()
+    run_specs.use_specs()
 
     signal.signal(signal.SIGINT, process_quit)
     signal.signal(signal.SIGTERM, process_quit)
