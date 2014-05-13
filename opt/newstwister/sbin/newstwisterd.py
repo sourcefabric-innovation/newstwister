@@ -181,10 +181,13 @@ class ConnectParams():
         self.web_host = WEB_HOST
         self.web_port = WEB_PORT
         self.search_port = SEARCH_PORT
+        self.common_port = COMMON_PORT
         self.node_path = NODE_PATH
         self.search_path = SEARCH_PATH
+        self.common_path = COMMON_PATH
         self.search_oauth = SEARCH_OAUTH
         self.save_url = SAVE_URL
+        self.user_url = USER_URL
         self.log_path = None
         self.log_path_streams = None
         self.pid_path = None
@@ -322,17 +325,26 @@ class ConnectParams():
     def get_search_port(self):
         return self.search_port
 
+    def get_common_port(self):
+        return self.common_port
+
     def get_node_path(self):
         return self.node_path
 
     def get_search_path(self):
         return self.search_path
 
+    def get_common_path(self):
+        return self.common_path
+
     def get_search_oauth(self):
         return self.search_oauth
 
     def get_save_url(self):
         return self.save_url
+
+    def get_user_url(self):
+        return self.user_url
 
     def get_log_path(self):
         return self.log_path
@@ -1026,6 +1038,17 @@ if __name__ == '__main__':
             sys.exit(1)
     except Exception as exc:
         logger.error('can not start the Newstwister search node: ' + str(exc))
+        status.set_status(1)
+        sys.exit(1)
+
+    try:
+        has_common = start_common_node()
+        if not has_common:
+            logger.error('has not started the Newstwister common node')
+            status.set_status(1)
+            sys.exit(1)
+    except Exception as exc:
+        logger.error('can not start the Newstwister common node: ' + str(exc))
         status.set_status(1)
         sys.exit(1)
 
