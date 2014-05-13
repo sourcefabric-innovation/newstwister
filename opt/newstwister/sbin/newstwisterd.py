@@ -33,6 +33,12 @@ on a status GET request:
     p.poll()
     os.kill(pid, 0)
 
+on a SEARCH request:
+    ask for a REST-based for tweets search on Twitter
+
+on a USER request:
+    ask for a REST-based for user info on Twitter
+
 '''
 
 import sys, os, time, atexit, signal
@@ -51,15 +57,19 @@ else:
 
 NODE_NAME = 'newstwistern'
 SEARCH_NAME = 'newstwisters'
+COMMON_NAME = 'newstwisterc'
 
 WEB_HOST = 'localhost'
 WEB_PORT = 9054
 SEARCH_PORT = 9053
+COMMON_PORT = 9052
 
 NODE_PATH = '/opt/newstwister/sbin/newstwistern.py'
 SEARCH_PATH = '/opt/newstwister/sbin/newstwisters.py'
+COMMON_PATH = '/opt/newstwister/sbin/newstwisterc.py'
 SEARCH_OAUTH = '/opt/newstwister/etc/newstwister/oauth/search_auth.py'
 SAVE_URL = 'http://localhost:9200/newstwister/tweets/'
+USER_URL = 'http://localhost:9200/newstwister/users/'
 
 LOG_PATH = '/opt/newstwister/log/newstwister/newstwisterd.log'
 LOG_PATH_STREAMS = '/opt/newstwister/log/newstwister/newstwistern.log'
@@ -193,11 +203,14 @@ class ConnectParams():
         parser.add_argument('-w', '--web_host', help='web host of this controller, e.g. ' + str(WEB_HOST), default=WEB_HOST)
         parser.add_argument('-p', '--web_port', help='web port of this controller, e.g. ' + str(WEB_PORT), type=int, default=WEB_PORT)
         parser.add_argument('-t', '--search_port', help='port of the search node, e.g. ' + str(SEARCH_PORT), type=int, default=SEARCH_PORT)
+        parser.add_argument('-r', '--common_port', help='port of the common node, e.g. ' + str(COMMON_PORT), type=int, default=COMMON_PORT)
 
         parser.add_argument('-n', '--node_path', help='node path, e.g. ' + str(NODE_PATH))
         parser.add_argument('-e', '--search_path', help='search node path, e.g. ' + str(SEARCH_PATH))
+        parser.add_argument('-c', '--common_path', help='common node path, e.g. ' + str(COMMON_PATH))
         parser.add_argument('-o', '--search_oauth', help='path to file with oauth keys, e.g. ' + str(SEARCH_OAUTH))
-        parser.add_argument('-s', '--save_url', help='save url, e.g. ' + str(SAVE_URL))
+        parser.add_argument('-s', '--save_url', help='save tweet url, e.g. ' + str(SAVE_URL))
+        parser.add_argument('-j', '--user_url', help='save user url, e.g. ' + str(USER_URL))
 
         parser.add_argument('-l', '--log_path', help='path to log file, e.g. ' + str(LOG_PATH))
         parser.add_argument('-m', '--log_path_streams', help='path to log file of streams, e.g. ' + str(LOG_PATH_STREAMS))
@@ -218,15 +231,22 @@ class ConnectParams():
             self.web_port = int(args.web_port)
         if args.search_port:
             self.search_port = int(args.search_port)
+        if args.common_port:
+            self.common_port = int(args.common_port)
 
         if args.node_path:
             self.node_path = args.node_path
         if args.search_path:
             self.search_path = args.search_path
+        if args.common_path:
+            self.common_path = args.common_path
         if args.search_oauth:
             self.search_oauth = args.search_oauth
+
         if args.save_url:
             self.save_url = args.save_url
+        if args.user_url:
+            self.user_url = args.user_url
 
         if args.log_path:
             self.log_path = args.log_path
@@ -549,13 +569,48 @@ class RequestHandler(BaseHTTPRequestHandler):
             command = 'STOP'
         if main_path.endswith('/_search'):
             command = 'SEARCH'
+        if main_path.endswith('/_user'):
+            command = 'USER'
 
         if not command:
             self._write_error('unknown command')
             return
 
+        if 'USER' == command:
+
+            common_url = 'http://localhost:' + str(params.get_common_port()) + '/'
+
+            try:
+                data_string = self.req_post_data
+            except:
+                self._write_error('no user spec data')
+                return
+
+            try:
+                data_struct = json.loads(data_string.strip())
+            except:
+                self._write_error('can not parse user spec data')
+                return
+
+            try:
+                common_data = json.dumps(data_struct)
+                req = urllib2.Request(common_url, common_data, {'Content-Type': 'application/json'})
+                response = urllib2.urlopen(req)
+                common_result = response.read()
+                common_status = json.loads(common_result)
+                if type(common_status) is not dict:
+                    common_status = None
+            except Exception as exc:
+                logger.warning('common request failed: ' + str(exc))
+                self._write_error('common request failed')
+                return
+
+            res = json.dumps(common_status)
+            self._write_json(res)
+
+            return
+
         if 'SEARCH' == command:
-            #logger.info('processing a search request')
 
             search_url = 'http://localhost:' + str(params.get_search_port()) + '/'
 
@@ -580,7 +635,6 @@ class RequestHandler(BaseHTTPRequestHandler):
                 if type(search_status) is not dict:
                     search_status = None
             except Exception as exc:
-                #search_status = {'failed': True}
                 logger.warning('search request failed: ' + str(exc))
                 self._write_error('search request failed')
                 return
@@ -748,6 +802,75 @@ def start_search_node():
         return False
 
     logger.info('started search node: ' + str(pid))
+
+    is_running = check_running(pid)
+    return is_running
+
+def start_common_node():
+    global params
+
+    logger.info('starting the Newstwister common node')
+
+    common_port = params.get_common_port()
+    common_path = params.get_common_path()
+
+    if not os.path.isfile(common_path):
+        logger.warning('the common node path not available: ' + str(common_path))
+        return False
+
+    common_exec_params = [COMMON_NAME, common_path, '-u', params.get_user_url(), '-w', '127.0.0.1', '-p', str(common_port)]
+    if params.get_debug():
+        common_exec_params.append('-d')
+
+    pid = None
+    executable_name = 'python' + str(sys.version_info.major) + '.' +str(sys.version_info.minor)
+
+    twitter_params = {}
+    # TODO: load it according to a startup option
+    oauth_set_path = params.get_search_oauth()
+
+    oath_loaded = False
+    if (2 == sys.version_info.major) or ((3 == sys.version_info.major) and (2 == sys.version_info.minor)):
+        # python2/python3.2 way
+        try:
+            import imp
+            oauths = imp.load_source('oauths_data', oauth_set_path)
+            twitter_params['oauth_info'] = oauths.oauth_info
+            oath_loaded = True
+        except Exception as exc:
+            logger.warning('error during (imp) loading oauth info: ' + str(exc))
+            oath_loaded = False
+    else:
+        # python3.3+ way
+        try:
+            import importlib.machinery
+            loader = importlib.machinery.SourceFileLoader('oauths_data', oauth_set_path)
+            oauths = loader.load_module('oauths_data')
+            twitter_params['oauth_info'] = oauths.oauth_info
+            oath_loaded = True
+        except Exception as exc:
+            logger.warning('error during (importlib) loading oauth info: ' + str(exc))
+            oath_loaded = False
+
+    if not oath_loaded:
+        logger.warning('can not load oauth keys')
+        return False
+
+    try:
+        new_process = subprocess.Popen(common_exec_params, bufsize=1, stdin=subprocess.PIPE, close_fds=True, executable=executable_name)
+        new_process.stdin.write(json.dumps(twitter_params) + '\n')
+        new_process.stdin.flush()
+        pid = new_process.pid
+    except Exception as exc:
+        logger.warning('can not write to common node')
+        logger.warning('error during common node creation: ' + str(exc))
+        return False
+
+    if not pid:
+        logger.warning('can not start the common node')
+        return False
+
+    logger.info('started common node: ' + str(pid))
 
     is_running = check_running(pid)
     return is_running
