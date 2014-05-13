@@ -288,16 +288,36 @@ class TweetProcessor(Protocol):
         global logger
 
         self.buffer += data
-        if data.endswith('\r\n') and self.buffer.strip(): # some finished message
-            message = json.loads(self.buffer)
+
+        message_set = []
+        if data.endswith('\r\n') and self.buffer.strip(): # some finished message(s)
+            for buffer_part in self.buffer.split('\r\n'):
+                buffer_part = buffer_part.strip()
+                if not buffer_part:
+                    continue
+                try:
+                    curr_message = json.loads(buffer_part)
+                except:
+                    logger.warning('twitter message issue -- not json form: ' + str(buffer_part)[:40])
+                    debug_msg('message apparently non-json:\n' + str(buffer_part))
+                    continue
+
+                if (type(curr_message) is not dict):
+                    logger.warning('twitter message issue -- not dict form: ' + str(buffer_part)[:40])
+                    debug_msg('apparently non-dict message:\n' + str(buffer_part))
+                    continue
+
+                message_set.append(curr_message)
+
             self.buffer = ''
+
+        for message in message_set:
 
             # status messages
             if message.get('limit'): # error (not a tweet), over the rate limit
                 limit_msg = 'rate limit over, count of missed tweets: ' + str(message['limit'].get('track'))
                 debug_msg(limit_msg)
                 logger.warning(limit_msg)
-                pass
             elif message.get('disconnect'): # error (not a tweet), got disconnected
                 disconnect_msg = 'disconnected: (' + str(message['disconnect'].get('code')) + ') '
                 disconnect_msg += str(message['disconnect'].get('reason'))
