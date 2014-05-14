@@ -244,7 +244,7 @@ class ElsDepositor(object):
                 use_url += str(data['id_str'])
             except:
                 return (False, 'damaged user data from twitter')
-            res = self.send_request(use_url, data)
+            res = self.send_request(use_url, {'user': data})
             return res
 
         return (False, 'unknown data type for saving')
