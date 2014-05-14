@@ -62,6 +62,7 @@ SEARCH_OAUTH = '/opt/newstwister/etc/newstwister/oauth/search_auth.py'
 SAVE_URL = 'http://localhost:9200/newstwister/tweets/'
 
 LOG_PATH = '/opt/newstwister/log/newstwister/newstwisterd.log'
+LOG_PATH_STREAMS = '/opt/newstwister/log/newstwister/newstwistern.log'
 PID_PATH = '/opt/newstwister/run/newstwisterd.pid'
 HOME_DIR = '/tmp'
 
@@ -175,12 +176,14 @@ class ConnectParams():
         self.search_oauth = SEARCH_OAUTH
         self.save_url = SAVE_URL
         self.log_path = None
+        self.log_path_streams = None
         self.pid_path = None
         self.allowed = ALLOWED_CLIENTS
         self.home_dir = HOME_DIR
         self.daemonize = False
         self.user_id = None
         self.group_id = None
+        self.debug = False
 
     def use_specs(self):
         global status
@@ -197,6 +200,7 @@ class ConnectParams():
         parser.add_argument('-s', '--save_url', help='save url, e.g. ' + str(SAVE_URL))
 
         parser.add_argument('-l', '--log_path', help='path to log file, e.g. ' + str(LOG_PATH))
+        parser.add_argument('-m', '--log_path_streams', help='path to log file of streams, e.g. ' + str(LOG_PATH_STREAMS))
         parser.add_argument('-i', '--pid_path', help='path to pid file, e.g. ' + str(PID_PATH))
 
         parser.add_argument('-a', '--allowed', help='path to file with ip addresses of allowed clients')
@@ -204,6 +208,8 @@ class ConnectParams():
         parser.add_argument('-d', '--daemonize', help='daemonize the process', action='store_true')
         parser.add_argument('-u', '--user', help='user of the daemon process')
         parser.add_argument('-g', '--group', help='group of the daemon process')
+
+        parser.add_argument('-b', '--debug', help='whether node and search parts have to write debug info', action='store_true')
 
         args = parser.parse_args()
         if args.web_host:
@@ -224,8 +230,13 @@ class ConnectParams():
 
         if args.log_path:
             self.log_path = args.log_path
+        if args.log_path_streams:
+            self.log_path_streams = args.log_path_streams
         if args.pid_path:
             self.pid_path = args.pid_path
+
+        if args.debug:
+            self.debug = args.debug
 
         if args.user:
             try:
@@ -306,6 +317,9 @@ class ConnectParams():
     def get_log_path(self):
         return self.log_path
 
+    def get_log_path_streams(self):
+        return self.log_path_streams
+
     def get_pid_path(self):
         return self.pid_path
 
@@ -320,6 +334,9 @@ class ConnectParams():
 
     def get_group_id(self):
         return self.group_id
+
+    def get_debug(self):
+        return self.debug
 
     def is_allowed(self, ip_address):
         try:
@@ -630,7 +647,9 @@ class RequestHandler(BaseHTTPRequestHandler):
                 return
 
             self.node_path = params.get_node_path()
-            self.exec_params = [NODE_NAME, self.node_path, '-s', params.get_save_url()]
+            self.exec_params = [NODE_NAME, self.node_path, '-s', params.get_save_url(), '-l', params.get_log_path_streams()]
+            if params.get_debug():
+                self.exec_params.append('-d')
             twitter_params = data_struct
 
             pid = None
@@ -677,6 +696,8 @@ def start_search_node():
         return False
 
     search_exec_params = [SEARCH_NAME, search_path, '-s', params.get_save_url(), '-w', '127.0.0.1', '-p', str(search_port)]
+    if params.get_debug():
+        search_exec_params.append('-d')
 
     pid = None
     executable_name = 'python' + str(sys.version_info.major) + '.' +str(sys.version_info.minor)

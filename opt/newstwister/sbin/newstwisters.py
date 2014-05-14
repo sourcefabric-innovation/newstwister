@@ -48,15 +48,17 @@ WEB_ADDRESS = '127.0.0.1'
 WEB_PORT = 9053
 SAVE_URL = 'http://localhost:9200/newstwister/tweets/'
 
-TODEBUG = False
-DEBUGPATH = '/tmp/newstwister_search.debug'
+to_debug = False
+DEBUG_PATH = '/tmp/newstwister_search.debug'
 
 def debug_msg(msg):
-    if not TODEBUG:
+    global to_debug
+
+    if not to_debug:
         return
 
     try:
-        fh = open(DEBUGPATH, 'a+')
+        fh = open(DEBUG_PATH, 'a+')
         fh.write(str(msg) + '\n')
         fh.flush()
         fh.close()
@@ -113,10 +115,13 @@ class SaveSpecs():
         }
 
     def use_specs(self):
+        global to_debug
+
         parser = argparse.ArgumentParser()
         parser.add_argument('-w', '--web_address', help='web address to listen at')
         parser.add_argument('-p', '--web_port', help='web port to listen at', type=int)
         parser.add_argument('-s', '--save_url', help='url for saving the tweets')
+        parser.add_argument('-d', '--debug', help='whether to write debug info', action='store_true')
 
         args = parser.parse_args()
         if args.web_address:
@@ -125,6 +130,9 @@ class SaveSpecs():
             self.specs['web_port'] = args.web_port
         if args.save_url:
             self.specs['save_url'] = args.save_url
+
+        if args.debug:
+            to_debug = True
 
 save_specs = SaveSpecs()
 
@@ -356,6 +364,8 @@ class QueueProcessor(object):
         self.searches.processed_request = self.searches.request_queue.pop(0)
         self.tweet_count = 0
 
+        debug_msg(str(self.searches.processed_request['search_spec']))
+
         auth_sys = AuthProcessor()
         params_urlized = auth_sys.get_search_params(self.searches.processed_request['search_spec'])
         req_headers = auth_sys.get_headers(params_urlized)
@@ -404,7 +414,7 @@ class QueueProcessor(object):
         save_data['request'] = request_id
         save_data['type'] = 'search'
         save_data['endpoint'] = {'endpoint_id': user_id}
-        save_data['filter'] = self.searches.processed_request['search_spec']
+        save_data['filter'] = self.searches.processed_request['search_spec_original']
         save_data['tweet'] = current_tweet
 
         tweet_data = json.dumps(save_data)
@@ -501,6 +511,11 @@ class QueuedResource(resource.Resource):
 
         res['user_id'] = str(data['user_id'])
         res['request_id'] = str(data['request_id'])
+
+        res['search_spec_original'] = None
+        if 'search_spec_original' in data:
+            if type(data['search_spec_original']) is dict:
+                res['search_spec_original'] = data['search_spec_original']
 
         has_parts = False
         if type(data['search_spec']) is not dict:
