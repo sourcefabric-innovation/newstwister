@@ -589,7 +589,6 @@ class RequestHandler(BaseHTTPRequestHandler):
             return
 
         if 'USER' == command:
-
             common_url = 'http://localhost:' + str(params.get_common_port()) + '/'
 
             try:
@@ -610,11 +609,18 @@ class RequestHandler(BaseHTTPRequestHandler):
                 response = urllib2.urlopen(req)
                 common_result = response.read()
                 common_status = json.loads(common_result)
-                if type(common_status) is not dict:
-                    common_status = None
             except Exception as exc:
-                logger.warning('common request failed: ' + str(exc))
-                self._write_error('common request failed')
+                exc_other = ''
+                try:
+                    exc_other += ' ' + str(exc.message).strip() + ','
+                except:
+                    pass
+                try:
+                    exc_other += ' ' + str(exc.read()).strip() + ','
+                except:
+                    pass
+                logger.warning('common request failed: ' + str(exc) + str(exc_other))
+                self._write_error('common request failed: ' + str(exc) + str(exc_other))
                 return
 
             res = json.dumps(common_status)

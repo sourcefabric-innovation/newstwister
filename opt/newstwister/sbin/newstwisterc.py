@@ -114,7 +114,7 @@ class TwtInquirer(object):
         self.oauth_info = oauth_info
 
     def process_request(self, request_type, request_params):
-        spec = self.take_request_spec()
+        spec = self.take_request_spec(request_type, request_params)
         if not spec:
             return (False, 'no recognized spec provided')
 
@@ -127,9 +127,9 @@ class TwtInquirer(object):
         oauth_header = self.get_oauth_header(spec['method'], effective_url)
 
         send_headers = self.get_common_headers()
-        send_headers['Authorization'] = [oauth_header]
+        send_headers['Authorization'] = oauth_header
 
-        res = send_request(spec, send_headers)
+        res = self.send_request(spec, send_headers)
         return res
 
     def take_request_spec(self, request_type, request_params):
@@ -187,14 +187,14 @@ class TwtInquirer(object):
 
     def get_common_headers(self):
         conn_headers = {}
-        conn_headers['Host'] = ['api.twitter.com']
-        conn_headers['User-Agent'] = ['Newstwister']
-        conn_headers['Content-Type'] = ['application/x-www-form-urlencoded']
-        conn_headers['Accept'] = ['application/json']
+        conn_headers['Host'] = 'api.twitter.com'
+        conn_headers['User-Agent'] = 'Newstwister'
+        conn_headers['Content-Type'] = 'application/x-www-form-urlencoded'
+        conn_headers['Accept'] = 'application/json'
 
         return conn_headers
 
-    def send_request(send_spec, send_headers):
+    def send_request(self, send_spec, send_headers):
         search_result = None
 
         send_body = None
@@ -212,7 +212,17 @@ class TwtInquirer(object):
             if type(search_result) is not dict:
                 return (False, 'unknown form of result data from twitter')
         except Exception as exc:
-            return (False, 'can not get data from twitter')
+            exc_other = ''
+            try:
+                exc_other += ' ' + str(exc.message).strip() + ','
+            except:
+                pass
+            try:
+                exc_other += ' ' + str(exc.read()).strip() + ','
+            except:
+                pass
+            debug_msg('can not get data from twitter: ' + str(exc) + str(exc_other))
+            return (False, 'can not get data from twitter: ' + str(exc) + str(exc_other))
 
         return (True, search_result)
 
@@ -223,28 +233,49 @@ class ElsDepositor(object):
 
     def save_result_data(self, data):
         if 'user_info' == self.request_type:
-            res = self.send_request(data)
+            use_url = self.save_url
+            if not use_url.endswith('/'):
+                use_url += '/'
+            if type(data) is not dict:
+                return (False, 'unrecognized user data from twitter')
+            if 'id_str' not in data:
+                return (False, 'incomplete user data from twitter')
+            try:
+                use_url += str(data['id_str'])
+            except:
+                return (False, 'damaged user data from twitter')
+            res = self.send_request(use_url, data)
             return res
 
         return (False, 'unknown data type for saving')
 
-    def send_request(save_data):
+    def send_request(self, save_url, save_data):
         save_status = None
 
         save_body = None
         if save_data:
-            send_body = json.dumps(save_data)
+            save_body = json.dumps(save_data)
 
         save_headers = {
             'Content-Type': 'application/json'
         }
         try:
-            req = urllib2.Request(self.save_url, save_data, save_headers)
+            req = urllib2.Request(save_url, save_body, save_headers)
             response = urllib2.urlopen(req)
             save_result = response.read()
             save_status = json.loads(save_result)
         except Exception as exc:
-            return (False, 'can not save the data')
+            exc_other = ''
+            try:
+                exc_other += ' ' + str(exc.message).strip() + ','
+            except:
+                pass
+            try:
+                exc_other += ' ' + str(exc.read()).strip() + ','
+            except:
+                pass
+            debug_msg('can not save the data: ' + str(exc) + str(exc_other))
+            return (False, 'can not save the data: ' + str(exc) + str(exc_other))
 
         return (True, save_status)
 
@@ -282,7 +313,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             return res
         data = res[1]
 
-        elsd = ElsDepositor(save_url)
+        elsd = ElsDepositor(request_type, save_url)
         res = elsd.save_result_data(data)
         if not res:
             return (False, 'error during data-saving processing')
@@ -300,7 +331,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                 return
 
         try:
-            self.req_post_data = self.rfile.read(content_length)
+            data_string = self.rfile.read(content_length)
         except:
             self._write_error('can not read request spec data')
             return
@@ -308,7 +339,7 @@ class RequestHandler(BaseHTTPRequestHandler):
         try:
             data_struct = json.loads(data_string.strip())
         except:
-            self._write_error('can not parse request spec data')
+            self._write_error('can not parse request spec data: ' + str(data_string.strip()))
             return
 
         if type(data_struct) is not dict:
