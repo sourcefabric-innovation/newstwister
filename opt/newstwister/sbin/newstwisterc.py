@@ -30,6 +30,9 @@ SAVE_URL_USERS = 'http://localhost:9200/newstwister/users/'
 to_debug = False
 DEBUG_PATH = '/tmp/newstwister_common.debug'
 
+NOT_SUCH_USER = '34'
+NOT_SUCH_USER_FOUND = 'user not found'
+
 def debug_msg(msg):
     global to_debug
 
@@ -212,17 +215,28 @@ class TwtInquirer(object):
             if type(search_result) is not dict:
                 return (False, 'unknown form of result data from twitter')
         except Exception as exc:
+            err_code = None
+            err_notice = ''
             exc_other = ''
             try:
                 exc_other += ' ' + str(exc.message).strip() + ','
             except:
                 pass
             try:
-                exc_other += ' ' + str(exc.read()).strip() + ','
+                err_notice = str(exc.read()).strip()
+                exc_other += ' ' + err_notice + ','
             except:
                 pass
-            debug_msg('can not get data from twitter: ' + str(exc) + str(exc_other))
-            return (False, 'can not get data from twitter: ' + str(exc) + str(exc_other))
+            try:
+                err_code = str(json.loads(err_notice)['errors'][0]['code'])
+            except:
+                err_code = None
+            if NOT_SUCH_USER == err_code:
+                debug_msg('user does not exist, can not get data from twitter: ' + str(exc) + str(exc_other))
+                return (False, NOT_SUCH_USER_FOUND)
+            else:
+                debug_msg('can not get data from twitter: ' + str(exc) + str(exc_other))
+                return (False, 'can not get data from twitter: ' + str(exc) + str(exc_other))
 
         return (True, search_result)
 

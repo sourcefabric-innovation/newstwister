@@ -610,17 +610,22 @@ class RequestHandler(BaseHTTPRequestHandler):
                 common_result = response.read()
                 common_status = json.loads(common_result)
             except Exception as exc:
+                err_notice = ''
                 exc_other = ''
                 try:
                     exc_other += ' ' + str(exc.message).strip() + ','
                 except:
                     pass
                 try:
-                    exc_other += ' ' + str(exc.read()).strip() + ','
+                    err_notice = str(exc.read()).strip()
+                    exc_other += ' ' + err_notice + ','
                 except:
-                    pass
+                    err_notice = ''
                 logger.warning('common request failed: ' + str(exc) + str(exc_other))
-                self._write_error('common request failed: ' + str(exc) + str(exc_other))
+                if err_notice:
+                    self._write_error(err_notice)
+                else:
+                    self._write_error('common request failed: ' + str(exc) + str(exc_other))
                 return
 
             res = json.dumps(common_status)
