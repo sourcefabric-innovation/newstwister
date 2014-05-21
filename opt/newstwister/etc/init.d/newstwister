@@ -22,10 +22,13 @@ LOGFILE=/opt/newstwister/var/log/newstwister/newstwisterd.log
 LOGFILESTREAMS=/opt/newstwister/var/log/newstwister/newstwistern.log
 WEBPORT=9054
 SEARCHPORT=9053
+COMMONPORT=9052
 SEARCHPATH=/opt/newstwister/sbin/newstwisters.py
+COMMONPATH=/opt/newstwister/sbin/newstwisterc.py
 SEARCHAUTH=/opt/newstwister/etc/newstwister/oauth/search_auth.py
 WEBHOST=localhost
 SAVEURL="http://localhost:9055/newstwister/tweets/"
+USERURL="http://localhost:9055/newstwister/tweet_users/"
 CLIENTS=/opt/newstwister/etc/newstwister/allowed.conf
 USER=citizendesk
 GROUP=citizendesk
@@ -53,6 +56,7 @@ case "$1" in
     start-stop-daemon --start --quiet --pidfile $PIDFILE --startas $DAEMON -- \
         -w $WEBHOST -p $WEBPORT -i $PIDFILE -l $LOGFILE -n $NODE -s $SAVEURL \
         -m $LOGFILESTREAMS -t $SEARCHPORT -e $SEARCHPATH -o $SEARCHAUTH \
+        -r $COMMONPORT -c $COMMONPATH -j $USERURL \
         -d -u $USER -g $GROUP -a $CLIENTS || true
 
     log_end_msg 0
@@ -66,6 +70,7 @@ case "$1" in
 
     killall newstwistern 2> /dev/null || true
     killall newstwisters 2> /dev/null || true
+    killall newstwisterc 2> /dev/null || true
     log_end_msg 0
     ;;
 
