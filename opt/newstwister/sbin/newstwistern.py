@@ -181,6 +181,156 @@ class StringProducer(object):
     def stopProducing(self):
         pass
 
+# Resolving links from URL-shortened forms
+
+class RslClientContextFactory(ClientContextFactory):
+    def getContext(self, hostname, port):
+        return ClientContextFactory.getContext(self)
+
+class TweetResolver(object):
+    def __init__(self, tweet):
+        self.tweet = tweet
+        self.last_url = ''
+        self.last_type = ''
+        self.last_host = ''
+        self.url_rank = 0
+        self.urls = []
+
+        if (type(tweet) is dict) and ('entities' in tweet) and (type(tweet['entities']) is dict):
+            report_entities = tweet['entities']
+        else:
+            report_entities = {}
+
+        if report_entities:
+            all_url_sets = []
+
+            for link_entity_type in ['urls', 'media']:
+                if (link_entity_type in report_entities) and report_entities[link_entity_type]:
+                    all_url_sets.append(report_entities[link_entity_type])
+            for one_url_set in all_url_sets:
+                if one_url_set and (type(one_url_set) in [list, tuple]):
+                    for one_url in one_url_set:
+                        if type(one_url) is not dict:
+                            continue
+                        if 'expanded_url' not in one_url:
+                            continue
+                        self.urls.append(one_url)
+
+    def get_type(self, url):
+        if url.startswith('https'):
+            return 'https'
+        if url.startswith('http'):
+            return 'http'
+        return ''
+
+    def get_host(self, url):
+
+        ind_host_start = url.find(':')
+        if -1 >= ind_host_start:
+            return ''
+
+        ind_host_start = ind_host_start + 3
+        url_host = url[ind_host_start:]
+
+        ind_host_end = url_host.find('/')
+        if 0 <= ind_host_end:
+            url_host = url_host[:ind_host_end]
+
+        return str(url_host)
+
+    def get_headers(self, host):
+        conn_headers = {}
+        conn_headers['Host'] = [host]
+        conn_headers['User-Agent'] = ['Newstwister']
+        conn_headers['Connection'] = ['close']
+
+        return conn_headers
+
+    def dispatch_tweet(self):
+        if self.url_rank >= len(self.urls):
+            tws = TweetSaver()
+            tws.save_tweet(self.tweet)
+            return
+
+        self.last_url = self.urls[self.url_rank]['expanded_url']
+        self.last_type = self.get_type(self.last_url)
+        self.last_host = self.get_host(self.last_url)
+
+        self.resolve_url(self.last_url)
+
+    def update_tweet(self, current_redirect):
+        if current_redirect:
+            self.last_url = current_redirect
+            self.last_type = self.get_type(self.last_url)
+            self.last_host = self.get_host(self.last_url)
+
+            self.resolve_url(self.last_url)
+            return
+
+        else:
+            self.urls[self.url_rank]['resolved_url'] = self.last_url
+
+            self.url_rank += 1
+            self.dispatch_tweet()
+            return
+
+    def resolve_url(self, redir_url):
+        contextFactory = RslClientContextFactory()
+        agent = Agent(reactor, contextFactory)
+
+        try:
+            d_rs = agent.request(
+                'HEAD',
+                str(redir_url),
+                Headers(self.get_headers(self.last_host)),
+                None)
+        except Exception, exc:
+            debug_msg('exc in url (' + str(redir_url) + ') resolving: ' + str(exc))
+            self.update_tweet(None)
+
+        borders = RslResponseBorders(self)
+
+        d_rs.addCallback(borders.cbRequest)
+        d_rs.addBoth(borders.cbShutdown)
+
+        return d_rs
+
+class RslResponseBorders():
+    def __init__(self, resolver):
+        self.resolver = resolver
+
+    def cbRequest(self, response):
+        debug_msg('Rsl response version: ' + str(response.version))
+        debug_msg('Rsl response code: ' + str(response.code))
+        debug_msg('Rsl response phrase: ' + str(response.phrase))
+        debug_msg('Rsl response headers:')
+        debug_msg(pformat(list(response.headers.getAllRawHeaders())))
+
+        redir_url = ''
+        try:
+            got_locations = list(response.headers.getRawHeaders('location'))
+            if len(got_locations):
+                redir_url = got_locations[0]
+        except:
+            redir_url = ''
+
+        if redir_url.startswith('/'):
+            redir_url = self.resolver.last_type + '://' + self.resolver.last_host + redir_url
+
+        resolver = self.resolver
+        self.resolver = None
+
+        resolver.update_tweet(redir_url)
+
+    def cbShutdown(self, ignored):
+        debug_msg(str(ignored))
+        debug_msg('shutting down resolver connection')
+
+        try:
+            self.resolver.update_tweet(None)
+        except:
+            pass
+
 # Part putting tweets into ES
 
 class ElsClientContextFactory(ClientContextFactory):
@@ -210,7 +360,7 @@ class TweetSaver(object):
             self.save_url += '/'
 
     def get_headers(self):
-        host = self.save_url[(self.save_url.find(':')+1):]
+        host = self.save_url[(self.save_url.find(':')+3):]
         host = host[:host.find('/')]
 
         conn_headers = {}
@@ -339,8 +489,8 @@ class TweetProcessor(Protocol):
             # actual tweet
             else:
                 # putting the tweet into elastic search
-                tws = TweetSaver()
-                tws.save_tweet(message)
+                twr = TweetResolver(message)
+                twr.dispatch_tweet()
 
                 '''
                 # outputting the tweet, development purposes only

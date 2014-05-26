@@ -425,7 +425,7 @@ class QueueProcessor(object):
         if not self.save_url.endswith('/'):
             self.save_url += '/'
 
-        host = self.save_url[(self.save_url.find(':')+1):]
+        host = self.save_url[(self.save_url.find(':')+3):]
         host = host[:host.find('/')]
 
         conn_headers = {}
