@@ -757,6 +757,31 @@ class RequestHandler(BaseHTTPRequestHandler):
 
             return
 
+        if 'AUTH' == command:
+            self.exec_params = []
+            executable_name = ''
+            try:
+                new_process = subprocess.Popen(self.exec_params, bufsize=1, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, close_fds=True, executable=executable_name)
+                stdout_data, stderr_data = new_process.communicate(input=json.dumps(twitter_params) + '\n')
+                result_status = new_process.wait()
+            except Exception as exc:
+                logger.warning('can not write to node')
+                self._write_error('error during node creation: ' + str(exc))
+                return
+
+        if 'TWEET' == command:
+            self.exec_params = []
+            executable_name = ''
+            try:
+                new_process = subprocess.Popen(self.exec_params, bufsize=1, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, close_fds=True, executable=executable_name)
+                stdout_data, stderr_data = new_process.communicate(input=json.dumps(twitter_params) + '\n')
+                result_status = new_process.wait()
+            except Exception as exc:
+                logger.warning('can not write to node')
+                self._write_error('error during node creation: ' + str(exc))
+                return
+
+
 class DerivedHTTPServer(WebMixIn, HTTPServer):
     pass
 
