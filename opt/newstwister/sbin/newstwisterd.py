@@ -67,6 +67,7 @@ COMMON_PORT = 9052
 NODE_PATH = '/opt/newstwister/sbin/newstwistern.py'
 SEARCH_PATH = '/opt/newstwister/sbin/newstwisters.py'
 COMMON_PATH = '/opt/newstwister/sbin/newstwisterc.py'
+TWEET_PATH = '/opt/newstwister/sbin/newstwistert.py'
 SEARCH_OAUTH = '/opt/newstwister/etc/newstwister/oauth/search_auth.py'
 SAVE_URL = 'http://localhost:9200/newstwister/tweets/'
 USER_URL = 'http://localhost:9200/newstwister/users/'
@@ -185,6 +186,7 @@ class ConnectParams():
         self.node_path = NODE_PATH
         self.search_path = SEARCH_PATH
         self.common_path = COMMON_PATH
+        self.tweet_path = TWEET_PATH
         self.search_oauth = SEARCH_OAUTH
         self.save_url = SAVE_URL
         self.user_url = USER_URL
@@ -211,6 +213,8 @@ class ConnectParams():
         parser.add_argument('-n', '--node_path', help='node path, e.g. ' + str(NODE_PATH))
         parser.add_argument('-e', '--search_path', help='search node path, e.g. ' + str(SEARCH_PATH))
         parser.add_argument('-c', '--common_path', help='common node path, e.g. ' + str(COMMON_PATH))
+        parser.add_argument('-f', '--tweet_path', help='tweet node path, e.g. ' + str(TWEET_PATH))
+
         parser.add_argument('-o', '--search_oauth', help='path to file with oauth keys, e.g. ' + str(SEARCH_OAUTH))
         parser.add_argument('-s', '--save_url', help='save tweet url, e.g. ' + str(SAVE_URL))
         parser.add_argument('-j', '--user_url', help='save user url, e.g. ' + str(USER_URL))
@@ -243,6 +247,8 @@ class ConnectParams():
             self.search_path = args.search_path
         if args.common_path:
             self.common_path = args.common_path
+        if args.tweet_path:
+            self.tweet_path = args.tweet_path
         if args.search_oauth:
             self.search_oauth = args.search_oauth
 
@@ -336,6 +342,9 @@ class ConnectParams():
 
     def get_common_path(self):
         return self.common_path
+
+    def get_tweet_path(self):
+        return self.tweet_path
 
     def get_search_oauth(self):
         return self.search_oauth
@@ -583,6 +592,12 @@ class RequestHandler(BaseHTTPRequestHandler):
             command = 'SEARCH'
         if main_path.endswith('/_user'):
             command = 'USER'
+        if main_path.endswith('/_authini'):
+            command = 'AUTHINI'
+        if main_path.endswith('/_authfin'):
+            command = 'AUTHFIN'
+        if main_path.endswith('/_tweet'):
+            command = 'TWEET'
 
         if not command:
             self._write_error('unknown command')
@@ -757,30 +772,143 @@ class RequestHandler(BaseHTTPRequestHandler):
 
             return
 
-        if 'AUTH' == command:
-            self.exec_params = []
-            executable_name = ''
+        if 'AUTHINI' == command:
+            try:
+                data_string = self.req_post_data
+            except:
+                self._write_error('no stream spec data')
+                return
+
+            try:
+                data_struct = json.loads(data_string.strip())
+            except:
+                self._write_error('can not parse stream spec data')
+                return
+
+            self.tweet_path = params.get_tweet_path()
+            self.exec_params = [NODE_NAME, self.tweet_path, '-t', 'auth_initialize']
+            if params.get_debug():
+                self.exec_params.append('-d')
+            twitter_params = data_struct
+
+            executable_name = 'python' + str(sys.version_info.major) + '.' +str(sys.version_info.minor)
+
             try:
                 new_process = subprocess.Popen(self.exec_params, bufsize=1, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, close_fds=True, executable=executable_name)
                 stdout_data, stderr_data = new_process.communicate(input=json.dumps(twitter_params) + '\n')
                 result_status = new_process.wait()
             except Exception as exc:
-                logger.warning('can not write to node')
-                self._write_error('error during node creation: ' + str(exc))
+                logger.warning('can not write to authini tweet node')
+                self._write_error('error during authini tweet node process: ' + str(exc))
                 return
+
+            try:
+                is_correct = not bool(int(result_status))
+            except:
+                is_correct = False
+
+            if stdout_data:
+                try:
+                    stdout_data = json.loads(stdout_data)
+                except:
+                    pass
+
+            res = json.dumps({'status': is_correct, 'data': stdout_data, 'error': stderr_data})
+            self._write_json(res)
+
+            return
+
+        if 'AUTHFIN' == command:
+            try:
+                data_string = self.req_post_data
+            except:
+                self._write_error('no stream spec data')
+                return
+
+            try:
+                data_struct = json.loads(data_string.strip())
+            except:
+                self._write_error('can not parse stream spec data')
+                return
+
+            self.tweet_path = params.get_tweet_path()
+            self.exec_params = [NODE_NAME, self.tweet_path, '-t', 'auth_finalize']
+            if params.get_debug():
+                self.exec_params.append('-d')
+            twitter_params = data_struct
+
+            executable_name = 'python' + str(sys.version_info.major) + '.' +str(sys.version_info.minor)
+
+            try:
+                new_process = subprocess.Popen(self.exec_params, bufsize=1, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, close_fds=True, executable=executable_name)
+                stdout_data, stderr_data = new_process.communicate(input=json.dumps(twitter_params) + '\n')
+                result_status = new_process.wait()
+            except Exception as exc:
+                logger.warning('can not write to authfin tweet node')
+                self._write_error('error during authfin tweet node process: ' + str(exc))
+                return
+
+            try:
+                is_correct = not bool(int(result_status))
+            except:
+                is_correct = False
+
+            if stdout_data:
+                try:
+                    stdout_data = json.loads(stdout_data)
+                except:
+                    pass
+
+            res = json.dumps({'status': is_correct, 'data': stdout_data, 'error': stderr_data})
+            self._write_json(res)
+
+            return
 
         if 'TWEET' == command:
-            self.exec_params = []
-            executable_name = ''
+            try:
+                data_string = self.req_post_data
+            except:
+                self._write_error('no stream spec data')
+                return
+
+            try:
+                data_struct = json.loads(data_string.strip())
+            except:
+                self._write_error('can not parse stream spec data')
+                return
+
+            self.tweet_path = params.get_tweet_path()
+            self.exec_params = [NODE_NAME, self.tweet_path, '-t', 'send_tweet', '-s', params.get_save_url()]
+            if params.get_debug():
+                self.exec_params.append('-d')
+            twitter_params = data_struct
+
+            executable_name = 'python' + str(sys.version_info.major) + '.' +str(sys.version_info.minor)
+
             try:
                 new_process = subprocess.Popen(self.exec_params, bufsize=1, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, close_fds=True, executable=executable_name)
                 stdout_data, stderr_data = new_process.communicate(input=json.dumps(twitter_params) + '\n')
                 result_status = new_process.wait()
             except Exception as exc:
-                logger.warning('can not write to node')
-                self._write_error('error during node creation: ' + str(exc))
+                logger.warning('can not write to send tweet node')
+                self._write_error('error during send tweet node process: ' + str(exc))
                 return
 
+            try:
+                is_correct = not bool(int(result_status))
+            except:
+                is_correct = False
+
+            if stdout_data:
+                try:
+                    stdout_data = json.loads(stdout_data)
+                except:
+                    pass
+
+            res = json.dumps({'status': is_correct, 'data': stdout_data, 'error': stderr_data})
+            self._write_json(res)
+
+            return
 
 class DerivedHTTPServer(WebMixIn, HTTPServer):
     pass
