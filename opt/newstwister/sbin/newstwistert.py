@@ -120,7 +120,7 @@ class RequestToken(object):
 
     REQ_URL_REQUEST_TOKEN = 'https://api.twitter.com/oauth/request_token'
 
-    def __init__(self, oauth_info, params):
+    def __init__(self, oauth_info, request_params):
         self.oauth_info = oauth_info
         self.request_params = request_params
 
