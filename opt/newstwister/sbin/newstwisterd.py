@@ -58,6 +58,7 @@ else:
 NODE_NAME = 'newstwistern'
 SEARCH_NAME = 'newstwisters'
 COMMON_NAME = 'newstwisterc'
+TWEET_NAME = 'newstwistert'
 
 WEB_HOST = 'localhost'
 WEB_PORT = 9054
@@ -776,17 +777,17 @@ class RequestHandler(BaseHTTPRequestHandler):
             try:
                 data_string = self.req_post_data
             except:
-                self._write_error('no stream spec data')
+                self._write_error('no authini spec data')
                 return
 
             try:
                 data_struct = json.loads(data_string.strip())
             except:
-                self._write_error('can not parse stream spec data')
+                self._write_error('can not parse authini spec data')
                 return
 
             self.tweet_path = params.get_tweet_path()
-            self.exec_params = [NODE_NAME, self.tweet_path, '-t', 'auth_initialize']
+            self.exec_params = [TWEET_NAME, self.tweet_path, '-t', 'auth_initialize']
             if params.get_debug():
                 self.exec_params.append('-d')
             twitter_params = data_struct
@@ -822,17 +823,17 @@ class RequestHandler(BaseHTTPRequestHandler):
             try:
                 data_string = self.req_post_data
             except:
-                self._write_error('no stream spec data')
+                self._write_error('no stream authfin data')
                 return
 
             try:
                 data_struct = json.loads(data_string.strip())
             except:
-                self._write_error('can not parse stream spec data')
+                self._write_error('can not parse authfin spec data')
                 return
 
             self.tweet_path = params.get_tweet_path()
-            self.exec_params = [NODE_NAME, self.tweet_path, '-t', 'auth_finalize']
+            self.exec_params = [TWEET_NAME, self.tweet_path, '-t', 'auth_finalize']
             if params.get_debug():
                 self.exec_params.append('-d')
             twitter_params = data_struct
@@ -868,23 +869,22 @@ class RequestHandler(BaseHTTPRequestHandler):
             try:
                 data_string = self.req_post_data
             except:
-                self._write_error('no stream spec data')
+                self._write_error('no stream tweet data')
                 return
 
             try:
                 data_struct = json.loads(data_string.strip())
             except:
-                self._write_error('can not parse stream spec data')
+                self._write_error('can not parse tweet spec data')
                 return
 
             self.tweet_path = params.get_tweet_path()
-            self.exec_params = [NODE_NAME, self.tweet_path, '-t', 'send_tweet', '-s', params.get_save_url()]
+            self.exec_params = [TWEET_NAME, self.tweet_path, '-t', 'send_tweet', '-s', params.get_save_url()]
             if params.get_debug():
                 self.exec_params.append('-d')
             twitter_params = data_struct
 
             executable_name = 'python' + str(sys.version_info.major) + '.' +str(sys.version_info.minor)
-
             try:
                 new_process = subprocess.Popen(self.exec_params, bufsize=1, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, close_fds=True, executable=executable_name)
                 stdout_data, stderr_data = new_process.communicate(input=json.dumps(twitter_params) + '\n')
@@ -893,7 +893,6 @@ class RequestHandler(BaseHTTPRequestHandler):
                 logger.warning('can not write to send tweet node')
                 self._write_error('error during send tweet node process: ' + str(exc))
                 return
-
             try:
                 is_correct = not bool(int(result_status))
             except:

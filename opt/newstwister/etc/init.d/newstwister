@@ -26,6 +26,7 @@ COMMONPORT=9052
 SEARCHPATH=/opt/newstwister/sbin/newstwisters.py
 COMMONPATH=/opt/newstwister/sbin/newstwisterc.py
 SEARCHAUTH=/opt/newstwister/etc/newstwister/oauth/search_auth.py
+TWEETPATH=/opt/newstwister/sbin/newstwistert.py
 WEBHOST=localhost
 SAVEURL="http://localhost:9055/newstwister/tweets/"
 USERURL="http://localhost:9055/newstwister/tweet_users/"
@@ -56,7 +57,7 @@ case "$1" in
     start-stop-daemon --start --quiet --pidfile $PIDFILE --startas $DAEMON -- \
         -w $WEBHOST -p $WEBPORT -i $PIDFILE -l $LOGFILE -n $NODE -s $SAVEURL \
         -m $LOGFILESTREAMS -t $SEARCHPORT -e $SEARCHPATH -o $SEARCHAUTH \
-        -r $COMMONPORT -c $COMMONPATH -j $USERURL \
+        -f $TWEETPATH -r $COMMONPORT -c $COMMONPATH -j $USERURL \
         -d -u $USER -g $GROUP -a $CLIENTS || true
 
     log_end_msg 0

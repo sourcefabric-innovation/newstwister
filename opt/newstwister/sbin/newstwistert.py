@@ -93,8 +93,7 @@ class ElsDepositor(object):
         try:
             req = urllib2.Request(save_url, save_body, save_headers)
             response = urllib2.urlopen(req)
-            save_result = response.read()
-            save_status = json.loads(save_result)
+            save_status = response.read()
         except Exception as exc:
             exc_other = ''
             try:
@@ -438,8 +437,8 @@ class SendTweet(object):
             err_msg = 'SendTweet: consumer app data not provided'
             debug_msg(err_msg)
             return (False, err_msg)
-        if (not self.oauth_info['access_token_key']) or (not self.oauth_info['access_token_key']):
-            err_msg = 'SendTweet: temporary token data not provided'
+        if (not self.oauth_info['access_token_key']) or (not self.oauth_info['access_token_secret']):
+            err_msg = 'SendTweet: authorized token data not provided'
             debug_msg(err_msg)
             return (False, err_msg)
 
@@ -537,6 +536,12 @@ class RequestProcessor(object):
                 self._write_error(err_msg)
                 return
 
+            if ('filter' not in request_params) or (not request_params['filter']):
+                err_msg = 'RequestProcessor: filter (carrying sort info) was not provided for the tweet to be sent'
+                debug_msg(err_msg)
+                self._write_error(err_msg)
+                return
+
             sender = SendTweet(oauth_info, request_params)
             result_tweet = sender.get_send_tweet()
             if not result_tweet[0]:
@@ -546,9 +551,11 @@ class RequestProcessor(object):
                 self._write_error(err_msg)
                 return
 
+            result_tweet_part = result_tweet[1]
             result_data = {
-                'tweet': result_tweet,
+                'tweet': result_tweet_part,
                 'endpoint': {'endpoint_id': request_params['endpoint_id']},
+                'filter': request_params['filter'],
             }
 
             if ('in_reply_to_status_id' in request_params) and request_params['in_reply_to_status_id']:
@@ -556,11 +563,11 @@ class RequestProcessor(object):
             else:
                 result_data['type'] = 'announce'
 
-            for key_other in ['request', 'filter']:
+            for key_other in ['request']:
                 if (key_other in request_params) and request_params[key_other]:
                     result_data[key_other] = request_params[key_other]
 
-            tweet_id = result_tweet['id_str']
+            tweet_id = result_tweet_part['id_str']
             use_url = save_url
             if not use_url.endswith('/'):
                 use_url += '/'
@@ -572,7 +579,7 @@ class RequestProcessor(object):
                 self._write_error(err_msg)
                 return
 
-            elsd = ElsDepositor(request_type, save_url)
+            elsd = ElsDepositor(request_type, use_url)
             result = elsd.save_result_data(result_data)
             if not result[0]:
                 err_msg = 'RequestProcessor: error during tweet-saving processing'
@@ -600,14 +607,16 @@ oauth_info_data = {}
 payload_params = {}
 
 if __name__ == '__main__':
-
     run_specs.use_specs() # for request_type, save_url, if any
 
     twitter_param_list = []
     while True:
         rfds, wfds, efds = select.select([sys.stdin], [], [], 1)
         if rfds:
-            twitter_param_list.append(sys.stdin.readline())
+            one_line = sys.stdin.readline()
+            if not one_line:
+                break
+            twitter_param_list.append(one_line)
         else:
             break
 
@@ -642,20 +651,25 @@ if __name__ == '__main__':
 
         for part in oauth_info_base:
             one_oauth_use[part] = ''
-
             is_required = oauth_info_base[part]
-            if is_required:
-                if not part in oauth_set:
+
+            if not part in oauth_set:
+                if is_required:
                     is_correct = False
                     break
-                if not oauth_set[part]:
+                continue
+            if not oauth_set[part]:
+                if is_required:
                     is_correct = False
                     break
-                try:
-                    one_oauth_use[part] = str(oauth_set[part])
-                except:
+                continue
+            try:
+                one_oauth_use[part] = str(oauth_set[part])
+            except:
+                if is_required:
                     is_correct = False
                     break
+                continue
         if is_correct:
             oauth_info_data = one_oauth_use
 
@@ -675,4 +689,7 @@ if __name__ == '__main__':
     if is_correct:
         processor = RequestProcessor()
         processor.run_pipe(run_specs, payload_params, oauth_info_data)
-
+    else:
+        err_msg = 'wrong data supplied'
+        sys.stderr.write(str(err_msg) + '\n')
+        sys.exit(1)
