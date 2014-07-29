@@ -26,6 +26,7 @@ else:
 WEB_ADDRESS = '127.0.0.1'
 WEB_PORT = 9052
 SAVE_URL_USERS = 'http://localhost:9200/newstwister/users/'
+SAVE_URL_TWEETS = 'http://localhost:9200/newstwister/tweets/'
 
 to_debug = False
 DEBUG_PATH = '/tmp/newstwister_common.debug'
@@ -84,7 +85,10 @@ class RunSpecs():
         self.specs = {
             'web_address': WEB_ADDRESS,
             'web_port': WEB_PORT,
-            'save_url': {'user_info': SAVE_URL_USERS}
+            'save_url': {
+                'user_info': SAVE_URL_USERS,
+                'tweet_info': SAVE_URL_TWEETS,
+            },
         }
     def get_specs(self):
         return self.specs
@@ -96,6 +100,7 @@ class RunSpecs():
         parser.add_argument('-w', '--web_address', help='web address to listen at')
         parser.add_argument('-p', '--web_port', help='web port to listen at', type=int)
         parser.add_argument('-u', '--save_url_users', help='url for saving the users info')
+        parser.add_argument('-t', '--save_url_tweets', help='url for saving the tweets info')
         parser.add_argument('-d', '--debug', help='whether to write debug info', action='store_true')
 
         args = parser.parse_args()
@@ -105,6 +110,8 @@ class RunSpecs():
             self.specs['web_port'] = args.web_port
         if args.save_url_users:
             self.specs['save_url']['user_info'] = args.save_url_users
+        if args.save_url_tweets:
+            self.specs['save_url']['tweet_info'] = args.save_url_tweets
 
         if args.debug:
             to_debug = True
@@ -154,6 +161,22 @@ class TwtInquirer(object):
                 spec['url'] += 'user_id=' + str(request_params['user_id'])
                 got_user_spec = True
             if not got_user_spec:
+                return False
+
+            return spec
+
+        if 'tweet_info' == request_type:
+            if type(request_params) is not dict:
+                return False
+
+            # https://dev.twitter.com/docs/api/1.1/get/statuses/show/%3Aid
+            spec['method'] = 'GET'
+            spec['url'] = 'https://api.twitter.com/1.1/statuses/show.json?'
+            got_tweet_spec = False
+            if ('tweet_id' in request_params) and request_params['tweet_id']:
+                spec['url'] += 'id=' + str(request_params['tweet_id'])
+                got_tweet_spec = True
+            if not got_tweet_spec:
                 return False
 
             return spec
@@ -245,7 +268,7 @@ class ElsDepositor(object):
         self.request_type = request_type
         self.save_url = save_url
 
-    def save_result_data(self, data):
+    def save_result_data(self, data, params=None):
         if 'user_info' == self.request_type:
             use_url = self.save_url
             if not use_url.endswith('/'):
@@ -258,12 +281,43 @@ class ElsDepositor(object):
                 use_url += str(data['id_str'])
             except:
                 return (False, 'damaged user data from twitter')
-            res = self.send_request(use_url, {'user': data})
+            res = self.send_request(use_url, {'user': data}, True)
+            return res
+
+        if 'tweet_info' == self.request_type:
+            use_url = self.save_url
+            if not use_url.endswith('/'):
+                use_url += '/'
+            if type(data) is not dict:
+                return (False, 'unrecognized tweet data from twitter')
+            if 'id_str' not in data:
+                return (False, 'incomplete tweet data from twitter')
+            try:
+                use_url += str(data['id_str'])
+            except:
+                return (False, 'damaged tweet data from twitter')
+
+            if ('endpoint_id' not in params) or (not params['endpoint_id']):
+                return (False, 'endpoint_id not provided in the request params')
+
+            try:
+                user_name = str(data['user']['screen_name']).lower()
+            except:
+                return (False, 'can not extract user name from tweet data')
+
+            save_data = {
+                'tweet': data,
+                'endpoint': {'endpoint_id': params['endpoint_id']},
+                'type': 'picked',
+                'filter': {'follow': [user_name]},
+            }
+
+            res = self.send_request(use_url, save_data, False)
             return res
 
         return (False, 'unknown data type for saving')
 
-    def send_request(self, save_url, save_data):
+    def send_request(self, save_url, save_data, parse_json):
         save_status = None
 
         save_body = None
@@ -277,7 +331,10 @@ class ElsDepositor(object):
             req = urllib2.Request(save_url, save_body, save_headers)
             response = urllib2.urlopen(req)
             save_result = response.read()
-            save_status = json.loads(save_result)
+            if parse_json:
+                save_status = json.loads(save_result)
+            else:
+                save_status = save_result
         except Exception as exc:
             exc_other = ''
             try:
@@ -328,7 +385,7 @@ class RequestHandler(BaseHTTPRequestHandler):
         data = res[1]
 
         elsd = ElsDepositor(request_type, save_url)
-        res = elsd.save_result_data(data)
+        res = elsd.save_result_data(data, request_params)
         if not res:
             return (False, 'error during data-saving processing')
 
