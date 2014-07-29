@@ -593,6 +593,8 @@ class RequestHandler(BaseHTTPRequestHandler):
             command = 'SEARCH'
         if main_path.endswith('/_user'):
             command = 'USER'
+        if main_path.endswith('/_pick'):
+            command = 'PICK'
         if main_path.endswith('/_authini'):
             command = 'AUTHINI'
         if main_path.endswith('/_authfin'):
@@ -617,6 +619,51 @@ class RequestHandler(BaseHTTPRequestHandler):
                 data_struct = json.loads(data_string.strip())
             except:
                 self._write_error('can not parse user spec data')
+                return
+
+            try:
+                common_data = json.dumps(data_struct)
+                req = urllib2.Request(common_url, common_data, {'Content-Type': 'application/json'})
+                response = urllib2.urlopen(req)
+                common_result = response.read()
+                common_status = json.loads(common_result)
+            except Exception as exc:
+                err_notice = ''
+                exc_other = ''
+                try:
+                    exc_other += ' ' + str(exc.message).strip() + ','
+                except:
+                    pass
+                try:
+                    err_notice = str(exc.read()).strip()
+                    exc_other += ' ' + err_notice + ','
+                except:
+                    err_notice = ''
+                logger.warning('common request failed: ' + str(exc) + str(exc_other))
+                if err_notice:
+                    self._write_error(err_notice)
+                else:
+                    self._write_error('common request failed: ' + str(exc) + str(exc_other))
+                return
+
+            res = json.dumps(common_status)
+            self._write_json(res)
+
+            return
+
+        if 'PICK' == command:
+            common_url = 'http://localhost:' + str(params.get_common_port()) + '/'
+
+            try:
+                data_string = self.req_post_data
+            except:
+                self._write_error('no pick spec data')
+                return
+
+            try:
+                data_struct = json.loads(data_string.strip())
+            except:
+                self._write_error('can not parse pick spec data')
                 return
 
             try:
@@ -993,7 +1040,18 @@ def start_common_node():
         logger.warning('the common node path not available: ' + str(common_path))
         return False
 
-    common_exec_params = [COMMON_NAME, common_path, '-u', params.get_user_url(), '-w', '127.0.0.1', '-p', str(common_port)]
+    common_exec_params = [
+        COMMON_NAME,
+        common_path,
+        '-u',
+        params.get_user_url(),
+        '-t',
+        params.get_save_url(),
+        '-w',
+        '127.0.0.1',
+        '-p',
+        str(common_port),
+    ]
     if params.get_debug():
         common_exec_params.append('-d')
 
