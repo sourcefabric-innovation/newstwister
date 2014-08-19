@@ -195,6 +195,7 @@ class TweetResolver(object):
         self.last_host = ''
         self.url_rank = 0
         self.urls = []
+        return # this processing causes too big cpu use
 
         if (type(tweet) is dict) and ('entities' in tweet) and (type(tweet['entities']) is dict):
             report_entities = tweet['entities']
