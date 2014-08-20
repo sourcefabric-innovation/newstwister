@@ -7,7 +7,7 @@ import urllib, urllib2, select
 import oauth2 as oauth
 import signal, atexit
 import ctypes
-import uuid
+import datetime
 
 from pprint import pformat
 
@@ -598,7 +598,9 @@ def notify_stopped(send_message, synchronous, message_text):
     notice_url = save_specs.get_specs()['notice_url']
     if not notice_url.endswith('/'):
         notice_url += '/'
-    notice_url += str(uuid.uuid4().hex)
+
+    timestamp = urllib.quote_plus(datetime.datetime.now().isoformat())
+    notice_url += str(timestamp)
 
     try:
         endpoint_value = str(endpoint['endpoint_id'])
