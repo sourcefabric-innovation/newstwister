@@ -70,6 +70,7 @@ SEARCH_PATH = '/opt/newstwister/sbin/newstwisters.py'
 COMMON_PATH = '/opt/newstwister/sbin/newstwisterc.py'
 TWEET_PATH = '/opt/newstwister/sbin/newstwistert.py'
 SEARCH_OAUTH = '/opt/newstwister/etc/newstwister/oauth/search_auth.py'
+NOTICE_URL = 'http://localhost:9200/newstwister/notices/'
 SAVE_URL = 'http://localhost:9200/newstwister/tweets/'
 USER_URL = 'http://localhost:9200/newstwister/users/'
 
@@ -189,6 +190,7 @@ class ConnectParams():
         self.common_path = COMMON_PATH
         self.tweet_path = TWEET_PATH
         self.search_oauth = SEARCH_OAUTH
+        self.notice_url = NOTICE_URL
         self.save_url = SAVE_URL
         self.user_url = USER_URL
         self.log_path = None
@@ -217,6 +219,7 @@ class ConnectParams():
         parser.add_argument('-f', '--tweet_path', help='tweet node path, e.g. ' + str(TWEET_PATH))
 
         parser.add_argument('-o', '--search_oauth', help='path to file with oauth keys, e.g. ' + str(SEARCH_OAUTH))
+        parser.add_argument('-z', '--notice_url', help='save error notices url, e.g. ' + str(NOTICE_URL))
         parser.add_argument('-s', '--save_url', help='save tweet url, e.g. ' + str(SAVE_URL))
         parser.add_argument('-j', '--user_url', help='save user url, e.g. ' + str(USER_URL))
 
@@ -253,6 +256,8 @@ class ConnectParams():
         if args.search_oauth:
             self.search_oauth = args.search_oauth
 
+        if args.notice_url:
+            self.notice_url = args.notice_url
         if args.save_url:
             self.save_url = args.save_url
         if args.user_url:
@@ -349,6 +354,9 @@ class ConnectParams():
 
     def get_search_oauth(self):
         return self.search_oauth
+
+    def get_notice_url(self):
+        return self.notice_url
 
     def get_save_url(self):
         return self.save_url
@@ -787,7 +795,16 @@ class RequestHandler(BaseHTTPRequestHandler):
                 return
 
             self.node_path = params.get_node_path()
-            self.exec_params = [NODE_NAME, self.node_path, '-s', params.get_save_url(), '-l', params.get_log_path_streams()]
+            self.exec_params = [
+                NODE_NAME,
+                self.node_path,
+                '-s',
+                params.get_save_url(),
+                '-n',
+                params.get_notice_url(),
+                '-l',
+                params.get_log_path_streams()
+            ]
             if params.get_debug():
                 self.exec_params.append('-d')
             twitter_params = data_struct

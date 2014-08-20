@@ -28,6 +28,7 @@ COMMONPATH=/opt/newstwister/sbin/newstwisterc.py
 SEARCHAUTH=/opt/newstwister/etc/newstwister/oauth/search_auth.py
 TWEETPATH=/opt/newstwister/sbin/newstwistert.py
 WEBHOST=localhost
+NOTICEURL="http://localhost:9060/feeds/err/ingest/"
 SAVEURL="http://localhost:9055/newstwister/tweets/"
 USERURL="http://localhost:9055/newstwister/tweet_users/"
 CLIENTS=/opt/newstwister/etc/newstwister/allowed.conf
@@ -55,7 +56,7 @@ case "$1" in
     log_progress_msg "newstwisterd"
 
     start-stop-daemon --start --quiet --pidfile $PIDFILE --startas $DAEMON -- \
-        -w $WEBHOST -p $WEBPORT -i $PIDFILE -l $LOGFILE -n $NODE -s $SAVEURL \
+        -w $WEBHOST -p $WEBPORT -i $PIDFILE -l $LOGFILE -n $NODE -s $SAVEURL -z $NOTICEURL \
         -m $LOGFILESTREAMS -t $SEARCHPORT -e $SEARCHPATH -o $SEARCHAUTH \
         -f $TWEETPATH -r $COMMONPORT -c $COMMONPATH -j $USERURL \
         -d -u $USER -g $GROUP -a $CLIENTS || true

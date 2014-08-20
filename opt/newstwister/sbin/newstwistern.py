@@ -3,10 +3,11 @@
 
 import sys, os, time, json, argparse
 import logging, logging.handlers
-import urllib, select
+import urllib, urllib2, select
 import oauth2 as oauth
 import signal, atexit
 import ctypes
+import uuid
 
 from pprint import pformat
 
@@ -32,6 +33,8 @@ DISCONNECT_INTERVAL_MIN = 10
 DISCONNECT_COUNT_MAX = 5
 
 SAVE_URL = 'http://localhost:9200/newstwister/tweets/'
+NOTICE_URL = 'http://localhost:9200/newstwister/notices/'
+NOTICE_TIMEOUT = 5
 
 PR_SET_NAME = 15
 NODE_NAME = 'newstwistern'
@@ -100,6 +103,7 @@ class SaveSpecs():
     def __init__(self):
         self.specs = {
             'save_url': SAVE_URL,
+            'notice_url': NOTICE_URL,
             'log_path': None
         }
     def get_specs(self):
@@ -110,6 +114,7 @@ class SaveSpecs():
 
         parser = argparse.ArgumentParser()
         parser.add_argument('-s', '--save_url', help='url for saving the tweets')
+        parser.add_argument('-n', '--notice_url', help='url for saving error notices')
         parser.add_argument('-l', '--log_path', help='path to log file')
         parser.add_argument('-d', '--debug', help='whether to write debug info', action='store_true')
 
@@ -542,7 +547,7 @@ class TwtResponseBorders():
 
         if '200' != str(response.code):
             logger.warning('Twitter disliked stream connection: ' + str(response.code))
-            notify_stopped()
+            notify_stopped(True, True, 'twitter dislikes the stream connection')
             close_reactor()
             return
 
@@ -563,7 +568,7 @@ class TwtResponseBorders():
                 reactor.callLater(0.1, adapt_to_disconnect, {})
             else:
                 logger.warning('Twitter refused stream connection')
-                notify_stopped()
+                notify_stopped(True, True, 'twitter refuses the stream connection')
                 close_reactor()
 
 def close_reactor():
@@ -579,10 +584,58 @@ def close_reactor():
 
     cleanup()
 
-def notify_stopped():
-    # we may want to trigger a global notification action here
-    pass
+def notify_stopped(send_message, synchronous, message_text):
+    global save_specs
+    global endpoint
 
+    # we shall trigger a global notification action here
+    if not send_message:
+        return
+    if not synchronous:
+        debug_msg('notification message should be sent the synchronous way')
+        return # by now, we only send the message the synchronous way, as the node is stopped immediately after that
+
+    notice_url = save_specs.get_specs()['notice_url']
+    if not notice_url.endswith('/'):
+        notice_url += '/'
+    notice_url += str(uuid.uuid4().hex)
+
+    try:
+        endpoint_value = str(endpoint['endpoint_id'])
+    except:
+        endpoint_value = endpoint
+
+    params = {}
+    params['feed_type'] = 'tweet'
+    params['channel'] = {
+        'type': 'stream',
+        'value': endpoint_value,
+        'request': None,
+    }
+    params['message'] = message_text
+
+    try:
+        post_data = json.dumps(params)
+        req = urllib2.Request(notice_url, post_data, {'Content-Type': 'application/json'})
+        response = urllib2.urlopen(req, timeout=NOTICE_TIMEOUT)
+        notice_status = response.read()
+    except Exception as exc:
+        err_notice = 'can not send notice message: ' + str(exc)
+        try:
+            err_part = str(exc.message).strip()
+            if err_part:
+                err_notice += ', ' + err_part
+        except:
+            pass
+        try:
+            err_part = str(exc.read()).strip()
+            if err_part:
+                err_notice += ', ' + err_part
+        except:
+            pass
+        debug_msg(err_notice)
+
+    return
 
 disconnect_last = time.time()
 disconnect_count = 0
@@ -612,7 +665,7 @@ def adapt_to_disconnect():
         debug_msg('stopping, since disconnect code considered severe: ' + str(disconnect_code))
 
     if to_stop:
-        notify_stopped()
+        notify_stopped(True, True, 'too many disconnections from the twitter stream')
         close_reactor()
         return
 
