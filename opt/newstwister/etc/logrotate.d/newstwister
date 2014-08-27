@@ -1,0 +1,17 @@
+/opt/newstwister/var/log/newstwister/newstwisterd.log {
+    missingok
+    notifempty
+    weekly
+    create 0664 citizendesk citizendesk
+    rotate 10
+    compress
+}
+
+/opt/newstwister/var/log/newstwister/newstwistern.log {
+    missingok
+    notifempty
+    weekly
+    create 0664 citizendesk citizendesk
+    rotate 10
+    compress
+}
