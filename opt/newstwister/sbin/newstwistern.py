@@ -564,9 +564,11 @@ class TwtResponseBorders():
         debug_msg('shutting twt down')
         if not forced_quit:
             if twitter_got_connected:
+                debug_msg('twitter connection to be reconnected later')
                 logger.warning('Twitter connection got down')
-                reactor.callLater(0.1, adapt_to_disconnect, {})
+                reactor.callLater(0.5, adapt_to_disconnect)
             else:
+                debug_msg('twitter connection to be closed')
                 logger.warning('Twitter refused stream connection')
                 notify_stopped(True, True, 'twitter refuses the stream connection')
                 close_reactor()
@@ -671,13 +673,16 @@ def adapt_to_disconnect():
         close_reactor()
         return
 
-    reactor.callLater(0.5, restart_stream, {})
+    reactor.callLater(0.5, restart_stream)
 
 def restart_stream():
     global d
     d = make_stream_connection()
 
 def make_stream_connection():
+    global twitter_got_connected
+
+    twitter_got_connected = False
     disconnect_code = None
     debug_msg('making stream connection')
 
